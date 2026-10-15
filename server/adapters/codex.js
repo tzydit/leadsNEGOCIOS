@@ -32,7 +32,8 @@ export function parseCodexEvent(obj, st) {
       case 'command_execution':
         if (started) events.push({ kind: 'command', text: `$ ${clip(cleanCommand(item.command), 200)}` });
         else if (completed && item.exit_code != null && item.exit_code !== 0) {
-          events.push({ kind: 'error', text: `Comando saiu com código ${item.exit_code}: ${clip(cleanCommand(item.command), 120)}` });
+          // Código diferente de zero é comum (grep sem resultado, teste falhando) e a IA trata sozinha.
+          events.push({ kind: 'info', text: `↩ código ${item.exit_code}: ${clip(cleanCommand(item.command), 120)}` });
         }
         break;
       case 'file_change':

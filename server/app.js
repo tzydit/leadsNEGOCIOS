@@ -83,6 +83,11 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
       if (dst.model && !MODEL_RE.test(dst.model)) throw new Error(`modelo inválido: ${dst.model}`);
       if (dst.effort && !EFFORT_RE.test(dst.effort)) throw new Error(`raciocínio inválido: ${dst.effort}`);
       if (src.maxBudgetUsd !== undefined) dst.maxBudgetUsd = Math.max(0, Number(src.maxBudgetUsd) || 0);
+      if (src.alwaysSkills !== undefined) {
+        if (!Array.isArray(src.alwaysSkills)) throw new Error('alwaysSkills deve ser uma lista');
+        dst.alwaysSkills = [...new Set(src.alwaysSkills.filter((n) => knownSkills.has(n)))];
+      }
+      if (src.loadMcp !== undefined) dst.loadMcp = Boolean(src.loadMcp);
       patch.workers[w] = dst;
     }
     store.data.settings = mergeSettings(store.settings, patch);

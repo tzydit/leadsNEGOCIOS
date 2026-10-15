@@ -21,11 +21,11 @@ test('frontmatter: aspas, blocos dobrados e campos aninhados', () => {
 test('as melhores do GitHub carregam com origem, licença e destaque', () => {
   const best = skills.filter((s) => s.melhor);
   assert.deepEqual(best.map((s) => s.name).sort(), [
-    'accessibility', 'core-web-vitals', 'differential-review', 'frontend-design', 'performance',
+    'accessibility', 'caveman', 'core-web-vitals', 'differential-review', 'frontend-design', 'performance',
     'security-best-practices', 'security-threat-model', 'sharp-edges', 'vercel-react-best-practices',
   ]);
   for (const s of best) {
-    assert.ok(['frontend', 'seguranca'].includes(s.categoria), s.name);
+    assert.ok(['frontend', 'seguranca', 'geral'].includes(s.categoria), s.name);
     assert.match(s.url, /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/tree\/[0-9a-f]{40}\//, s.name);
     assert.ok(s.licenca && s.autor !== 'AI Office', s.name);
     assert.ok(s.description.length > 20 && s.porque.length > 20, s.name);
@@ -69,4 +69,17 @@ test('com várias skills, o prompt diz como resolver conflitos entre elas', () =
   assert.match(many, /Se conflitarem: o papel e o "Formato da resposta"/);
   assert.match(many, /não grave relatórios em arquivo/);
   assert.ok(many.indexOf('Se conflitarem') < many.indexOf('skill: economia-tokens'));
+});
+
+test('caveman fica sempre ligado no Claude e o Claude roda sem os MCPs do usuário', async () => {
+  const { DEFAULT_SETTINGS } = await import('../server/store.js');
+  assert.deepEqual(DEFAULT_SETTINGS.workers.claude.alwaysSkills, ['caveman']);
+  assert.deepEqual(DEFAULT_SETTINGS.workers.codex.alwaysSkills, []);
+  const args = buildClaudeArgs({ role: 'executar', config: {} });
+  assert.ok(args.includes('--strict-mcp-config'));
+  assert.ok(!buildClaudeArgs({ role: 'executar', config: { loadMcp: true } }).includes('--strict-mcp-config'));
+  // comandos de checagem que antes travavam a etapa por falta de permissão
+  for (const r of ['Bash(node --check:*)', 'Bash(grep:*)', 'PowerShell(node --check:*)', 'PowerShell(git status:*)', 'Bash(npm test:*)']) assert.ok(args.includes(r), r);
+  const ro = buildClaudeArgs({ role: 'revisar', config: {} });
+  assert.ok(ro.includes('Bash(grep:*)') && !ro.includes('Bash(npm run:*)'));
 });

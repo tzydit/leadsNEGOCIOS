@@ -173,7 +173,12 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
     parts.push(lines.join('\n'));
   }
 
-  const out = ['## Formato da resposta', 'Responda em português, direto ao ponto.', 'Termine com `RESUMO:` (no máximo 5 linhas) — é o que a próxima IA vai receber.'];
+  const out = [
+    '## Formato da resposta',
+    'Responda em português e CURTO: sem explicar o que fez passo a passo, sem repetir código, sem introdução nem despedida.',
+    'Use comandos simples, um por vez (sem encadear com && ou ;).',
+    'Termine com `RESUMO:` (no máximo 5 linhas) — é o que a próxima IA vai receber.',
+  ];
   if (step.role === 'planejar') out.push('No RESUMO, coloque o plano em passos numerados.');
   if (VERDICT_ROLES.has(step.role)) out.push('A ÚLTIMA linha deve ser exatamente `VEREDITO: APROVADO` ou `VEREDITO: MUDANCAS_NECESSARIAS`.');
   parts.push(out.join('\n'));

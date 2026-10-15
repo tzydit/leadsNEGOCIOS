@@ -1,7 +1,15 @@
 import { runJsonl, splitArgs } from '../proc.js';
 import { READ_ONLY_ROLES, base, clip, emptyUsage } from './common.js';
 
-const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)', 'Bash(ls:*)'];
+// Comandos de leitura e checagem que as IAs usam o tempo todo. Sem eles, o
+// Claude em modo não interativo pede permissão e a etapa trava ("Ferramenta
+// falhou: ... requires approval"). Valem no Bash e no PowerShell (Windows).
+const READ_CMDS = ['git status', 'git diff', 'git log', 'git show', 'git branch', 'ls', 'dir', 'cat', 'type', 'head', 'tail', 'wc', 'grep', 'rg', 'findstr', 'pwd', 'echo', 'node --check', 'node --version', 'npm --version'];
+const PS_READ_CMDS = ['Get-Content', 'Get-ChildItem', 'Select-String', 'Test-Path', 'Write-Output', 'Get-Location', 'Measure-Object'];
+const EXEC_CMDS = ['npm test', 'npm run', 'npx vitest', 'npx jest', 'npx tsc', 'npx eslint', 'npx prettier', 'node --test'];
+const rules = (cmds) => cmds.flatMap((c) => [`Bash(${c}:*)`, `PowerShell(${c}:*)`]);
+export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', ...rules(READ_CMDS), ...PS_READ_CMDS.map((c) => `PowerShell(${c}:*)`)];
+export const EXEC_TOOLS = [...READ_ONLY_TOOLS.slice(3), ...rules(EXEC_CMDS)];
 
 /** "Bash(npm test:*) Read, Grep" → ['Bash(npm test:*)', 'Read', 'Grep'] (espaços dentro de parênteses ficam). */
 export function splitTools(str) {
@@ -87,8 +95,10 @@ export function parseClaudeEvent(obj, st) {
   } else if (obj.type === 'user' && obj.message?.content) {
     for (const block of obj.message.content) {
       if (block.type === 'tool_result' && block.is_error) {
-        const t = Array.isArray(block.content) ? block.content.map((c) => c.text ?? '').join(' ') : block.content;
-        events.push({ kind: 'error', text: `Ferramenta falhou: ${clip(t, 160)}` });
+        const t = Array.isArray(block.content) ? block.content.map((c) => c.text ?? '').join(' ') : String(block.content ?? '');
+        // Pedido de permissão negado não é falha da tarefa: a IA segue por outro caminho.
+        if (/requires approval|requested permissions|haven't granted|permission/i.test(t)) events.push({ kind: 'info', text: `🔒 não liberado nesta etapa: ${clip(t.replace(/^.*?(requires approval:|use )/i, ''), 110)}` });
+        else events.push({ kind: 'error', text: `Ferramenta falhou: ${clip(t, 160)}` });
       }
     }
   } else if (obj.type === 'result') {
@@ -114,6 +124,9 @@ export function parseClaudeEvent(obj, st) {
 
 export function buildClaudeArgs({ role, config }) {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
+  // Sem os MCPs do seu Claude Code (ex.: chrome-devtools): eles pediriam
+  // permissão no meio da etapa e gastam tokens. As capturas usam o comando próprio.
+  if (!config.loadMcp) args.push('--strict-mcp-config');
   if (config.model) args.push('--model', config.model);
   if (config.effort) args.push('--effort', config.effort);
   // Leitura das referências das skills e das capturas (ficam fora da pasta do projeto).
@@ -124,7 +137,7 @@ export function buildClaudeArgs({ role, config }) {
     args.push('--permission-mode', 'dontAsk', '--allowedTools', ...READ_ONLY_TOOLS, ...shotRule);
   } else {
     args.push('--permission-mode', 'acceptEdits');
-    const tools = [...splitTools(config.allowedTools), ...shotRule];
+    const tools = [...new Set([...EXEC_TOOLS, ...splitTools(config.allowedTools), ...shotRule])];
     if (tools.length) args.push('--allowedTools', ...tools);
   }
   if (Number(config.maxBudgetUsd) > 0) args.push('--max-budget-usd', String(config.maxBudgetUsd));

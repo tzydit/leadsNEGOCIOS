@@ -99,6 +99,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .cost-item.live { color: #7fe39b; }
 .cost-item.live .cost-dot { background: var(--ok); animation: blink 1s steps(2) infinite; }
 .cost-err { color: var(--err); }
+.cost-item.saved { color: #ffd98a; }
+.skill-chip.always { opacity: 1; cursor: default; border-style: dashed; }
 @keyframes blink { 50% { opacity: .2; } }
 .tools { display: flex; align-items: center; gap: 2px; }
 .tools .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
@@ -380,7 +382,7 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--line-strong); }
 }
 @media (max-width: 1100px) {
   .stats { display: none; }
-  .cost-item:nth-child(n+3) { display: none; }
+  .cost-item:nth-child(n+4) { display: none; }
 }
 
 /* celular: barra em duas linhas, painéis viram folhas por cima do mapa */

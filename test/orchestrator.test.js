@@ -143,3 +143,18 @@ test('custo: etapa real entra no gasto do dia, simulada não', async () => {
   assert.deepEqual(today, { codex: 2 });
   assert.equal(store.stats.claude.costUsd, 0);
 });
+
+test('skills sempre ligadas da IA entram no prompt de toda etapa dela', async () => {
+  const prompts = [];
+  const simulated = createSimulatedRunner({ stepMs: 1, decide: () => 'APROVADO' });
+  const spy = (args) => {
+    prompts.push([args.worker, args.prompt]);
+    return simulated(args);
+  };
+  const { orch } = setup({ runners: { simulated: spy } });
+  await orch.start('l1');
+  const [claude, codex] = prompts;
+  assert.equal(claude[0], 'claude');
+  assert.match(claude[1], /skill: caveman/);
+  assert.doesNotMatch(codex[1], /skill: caveman/);
+});

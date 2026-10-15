@@ -566,6 +566,8 @@ function settingsHtml() {
         <div class="field"><label>Modelo padrão</label><select name="${k}.model" data-prev="${esc(c.model)}">${modelOptions(k, c.model, 'Padrão do CLI')}</select></div>
         <div class="field"><label>Raciocínio padrão</label><select name="${k}.effort">${effortOptions(k, c.model, c.effort, 'Padrão do modelo')}</select></div>
         <div class="field"><label>Argumentos extras</label><input type="text" name="${k}.extraArgs" value="${esc(c.extraArgs)}"></div>
+        <label class="check field full"><input type="checkbox" data-always="${k}" ${(c.alwaysSkills ?? []).includes('caveman') ? 'checked' : ''}> 🪨 caveman sempre ligado (respostas curtas, menos tokens de saída)</label>
+        ${k === 'claude' ? `<label class="check field full"><input type="checkbox" data-loadmcp ${c.loadMcp ? 'checked' : ''}> Carregar os MCPs do meu Claude Code (ex.: chrome-devtools) — costuma pedir permissões no meio da etapa</label>` : ''}
         ${k === 'claude'
           ? `<div class="field full"><label>Comandos liberados ao executar (allowedTools)</label><input type="text" name="claude.allowedTools" value="${esc(c.allowedTools)}"></div>
              <div class="field"><label>Limite em US$ por etapa (0 = sem)</label><input type="number" min="0" step="0.5" name="claude.maxBudgetUsd" value="${c.maxBudgetUsd || 0}"></div>`
@@ -609,8 +611,9 @@ function skillChips(step) {
     if (!list.length) return '';
     const chips = list
       .map((k) => {
-        const tip = `${k.melhor ? `⭐ Melhor do GitHub · ${k.autor} · ${k.licenca}\n` : 'Skill do AI Office\n'}${k.porque || k.description}\n~${fmt(k.tokens)} tokens no prompt`;
-        return `<button type="button" class="skill-chip${k.melhor ? ' best' : ''}${k.recomendada ? ' rec' : ''}" data-skill="${esc(k.name)}" aria-pressed="${step.skills.includes(k.name)}" title="${esc(tip)}">${k.melhor ? '⭐ ' : k.recomendada ? '📸 ' : ''}${esc(k.name)}</button>`;
+        const always = (S.data.settings.workers[step.worker]?.alwaysSkills ?? []).includes(k.name);
+        const tip = `${always ? `Sempre ligada no ${wname(step.worker)} (mude em Configurações)\n` : ''}${k.melhor ? `⭐ Melhor do GitHub · ${k.autor} · ${k.licenca}\n` : 'Skill do AI Office\n'}${k.porque || k.description}\n~${fmt(k.tokens)} tokens no prompt`;
+        return `<button type="button" class="skill-chip${k.melhor ? ' best' : ''}${k.recomendada ? ' rec' : ''}${always ? ' always' : ''}" data-skill="${esc(k.name)}" aria-pressed="${always || step.skills.includes(k.name)}" ${always ? 'disabled' : ''} title="${esc(tip)}">${always ? '🔒 ' : k.melhor ? '⭐ ' : k.recomendada ? '📸 ' : ''}${esc(k.name)}${always ? ' · sempre' : ''}</button>`;
       })
       .join('');
     return `<div class="skill-group"><span class="skill-cat">${label}</span>${chips}</div>`;
@@ -846,6 +849,13 @@ function wireModal() {
       else if (b) body.workers[a][b] = v;
       else body[a] = v;
     }
+    for (const box of e.target.querySelectorAll('[data-always]')) {
+      const w = box.dataset.always;
+      const others = (S.data.settings.workers[w].alwaysSkills ?? []).filter((n) => n !== 'caveman');
+      body.workers[w].alwaysSkills = box.checked ? [...others, 'caveman'] : others;
+    }
+    const mcp = e.target.querySelector('[data-loadmcp]');
+    if (mcp) body.workers.claude.loadMcp = mcp.checked;
     body.pricing = {};
     for (const r of Object.values(rows)) {
       const name = String(r.name || '').trim().toLowerCase();
@@ -882,6 +892,21 @@ function monthCost(worker) {
 
 const ACCOUNTS = { anthropic: 'Conta Anthropic', openai: 'Conta OpenAI' };
 
+/** Economia medida (cache + repasse enxuto), acumulada e das etapas rodando agora. */
+function savedTotals() {
+  const out = { cache: 0, handoff: 0, usd: 0, by: {} };
+  for (const w of Object.keys(WORKER_STYLE)) {
+    const s = S.data.stats[w] ?? {};
+    const live = runningAttempts(w).reduce((a, { a: t }) => ({ cache: a.cache + (t.saved?.cache ?? 0), handoff: a.handoff + (t.saved?.handoff ?? 0), usd: a.usd + (t.saved?.cacheUsd ?? 0) }), { cache: 0, handoff: 0, usd: 0 });
+    const v = { cache: (s.savedCache ?? 0) + live.cache, handoff: (s.savedHandoff ?? 0) + live.handoff, usd: (s.savedUsd ?? 0) + live.usd };
+    out.by[w] = v;
+    out.cache += v.cache;
+    out.handoff += v.handoff;
+    out.usd += v.usd;
+  }
+  return out;
+}
+
 function renderCosts() {
   const el = $('#costs');
   if (!el || !S.data) return;
@@ -891,6 +916,8 @@ function renderCosts() {
   const parts = [];
   parts.push(`<span class="cost-item${live ? ' live' : ''}"><span class="cost-dot"></span><small>agora</small> ${fmtUsd(live)}</span>`);
   parts.push(`<span class="cost-item"><small>hoje</small> ${fmtUsd(today)}</span>`);
+  const sv = savedTotals();
+  parts.push(`<span class="cost-item saved" title="Medido: cache ${fmt(sv.cache)} + repasse enxuto ${fmt(sv.handoff)} tokens (≈ ${fmtUsd(sv.usd)})"><small>💰 economizado</small> ${fmt(sv.cache + sv.handoff)} tokens</span>`);
   for (const [id, b] of Object.entries(S.data.billing ?? {})) {
     if (!b.configured) continue;
     const val = b.error ? '<span class="cost-err">erro</span>' : b.monthUsd == null ? '…' : fmtUsd(b.monthUsd);
@@ -934,7 +961,15 @@ function costsHtml() {
     })
     .join('');
 
-  return `<h3>Agora</h3>${nowHtml}
+  const sv = savedTotals();
+  const caveOn = Object.keys(WORKER_STYLE).filter((w) => (S.data.settings.workers[w].alwaysSkills ?? []).includes('caveman')).map(wname);
+  const economia = `<h3>💰 Economia de tokens</h3>
+    <table class="costs-table"><thead><tr><th>Como</th>${Object.keys(WORKER_STYLE).map((w) => `<th>${esc(wname(w))}</th>`).join('')}<th>Total</th></tr></thead><tbody>
+      <tr><td>Cache (lido do cache, custa ~10%)</td>${Object.keys(WORKER_STYLE).map((w) => `<td>${fmt(sv.by[w].cache)}</td>`).join('')}<td>${fmt(sv.cache)}</td></tr>
+      <tr><td>Repasse enxuto (só o RESUMO)</td>${Object.keys(WORKER_STYLE).map((w) => `<td>${fmt(sv.by[w].handoff)}</td>`).join('')}<td>${fmt(sv.handoff)}</td></tr>
+    </tbody><tfoot><tr><td>Total</td>${Object.keys(WORKER_STYLE).map((w) => `<td>${fmt(sv.by[w].cache + sv.by[w].handoff)}</td>`).join('')}<td>${fmt(sv.cache + sv.handoff)} tokens · ≈ ${fmtUsd(sv.usd)}</td></tr></tfoot></table>
+    <p class="compare-note">Só entra o que dá para medir. 🪨 caveman ${caveOn.length ? `ligado no ${esc(caveOn.join(' e '))}` : 'desligado'}: reduz a saída, mas o quanto economiza não dá para medir sem rodar a mesma tarefa sem ele.</p>`;
+  return `${economia}<h3>Agora</h3>${nowHtml}
     <h3>Gasto das linhas do AI Office</h3>
     <table class="costs-table"><thead><tr><th>Dia</th>${workers.map((w) => `<th>${esc(wname(w))}</th>`).join('')}<th>Total</th></tr></thead>
       <tbody>${dayRows || `<tr><td colspan="${workers.length + 2}">Nenhum gasto real ainda.</td></tr>`}</tbody>

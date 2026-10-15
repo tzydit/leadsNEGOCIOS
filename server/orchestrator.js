@@ -9,7 +9,7 @@ import { ensureWorktree, getDiff, headCommit, isGitRepo } from './git.js';
 import { buildPrompt, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
 import { detectCli, startProcess, waitForUrl } from './proc.js';
 import { capture as chromeCapture } from './screenshot.js';
-import { attemptCost } from './pricing.js';
+import { attemptCost, priceFor } from './pricing.js';
 import { CLAUDE_MODELS, CODEX_FALLBACK, loadCodexModels } from './models.js';
 
 const LOG_LIMIT = 400;
@@ -227,7 +227,7 @@ export class Orchestrator extends EventEmitter {
     let feedback = null;
     while (i < line.steps.length) {
       if (ctl.stopped) break;
-      const step = line.steps[i];
+      let step = line.steps[i];
       run.current = i;
       const mode = this.modeOf(step.worker);
       const attempt = {
@@ -243,6 +243,13 @@ export class Orchestrator extends EventEmitter {
         usage: { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, costUsd: 0, model: '' },
         cost: 0,
         costExact: false,
+        // Economia medida: cache (tokens lidos do cache custam bem menos) e
+        // repasse (a próxima IA recebe só o RESUMO, não tudo o que a anterior escreveu).
+        saved: {
+          cache: 0,
+          cacheUsd: 0,
+          handoff: previous ? Math.max(0, (previous.usage?.output ?? 0) - Math.round((previous.summary ?? '').length / 4)) : 0,
+        },
         verdict: null,
         summary: '',
         finalText: '',
@@ -253,7 +260,9 @@ export class Orchestrator extends EventEmitter {
 
       const needsDiff = where.git && (VERDICT_ROLES.has(step.role) || step.role === 'analisar') && line.steps.slice(0, i).some((s) => s.role === 'executar');
       const diff = needsDiff ? await getDiff(where.dir, where.base, settings.diffMaxChars) : null;
-      const wantsShots = (step.skills ?? []).includes('captura-tela');
+      // Skills sempre ligadas para esta IA (ex.: caveman no Claude) entram em toda etapa dela.
+      step = { ...step, skills: [...new Set([...(step.skills ?? []), ...(settings.workers[step.worker].alwaysSkills ?? [])])] };
+      const wantsShots = step.skills.includes('captura-tela');
       const shots = wantsShots ? await this.captureFor(line, `etapa${i + 1}-r${run.round}`) : null;
       if (shots?.files?.length) attempt.captures = shots.files.map((f) => path.basename(f.path));
       const capture = wantsShots ? { cmd: this.captureCmd(line), url: line.preview?.url, files: shots.files.map((f) => f.path), problems: shots.problems, error: shots.error } : null;
@@ -362,9 +371,15 @@ export class Orchestrator extends EventEmitter {
   }
 
   priceAttempt(attempt) {
-    const c = attemptCost(this.store.settings.pricing, attempt.worker, attempt.usage);
+    const pricing = this.store.settings.pricing;
+    const c = attemptCost(pricing, attempt.worker, attempt.usage);
     attempt.cost = c.usd;
     attempt.costExact = c.exact;
+    const p = priceFor(pricing, attempt.worker, attempt.usage.model);
+    const cached = attempt.usage.cachedInput ?? 0;
+    attempt.saved ??= { cache: 0, cacheUsd: 0, handoff: 0 };
+    attempt.saved.cache = p.input > 0 ? Math.round(cached * (1 - p.cacheRead / p.input)) : 0;
+    attempt.saved.cacheUsd = (cached * Math.max(0, p.input - p.cacheRead)) / 1e6;
   }
 
   addStats(worker, attempt) {
@@ -374,7 +389,12 @@ export class Orchestrator extends EventEmitter {
     s.input += attempt.usage.input ?? 0;
     s.cachedInput += attempt.usage.cachedInput ?? 0;
     s.output += attempt.usage.output ?? 0;
-    if (attempt.mode === 'real') s.costUsd += attempt.cost ?? 0;
+    if (attempt.mode === 'real') {
+      s.costUsd += attempt.cost ?? 0;
+      s.savedCache = (s.savedCache ?? 0) + (attempt.saved?.cache ?? 0);
+      s.savedHandoff = (s.savedHandoff ?? 0) + (attempt.saved?.handoff ?? 0);
+      s.savedUsd = (s.savedUsd ?? 0) + (attempt.saved?.cacheUsd ?? 0);
+    }
     s.ms += attempt.endedAt - attempt.startedAt;
   }
 

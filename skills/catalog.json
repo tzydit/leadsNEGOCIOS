@@ -25,6 +25,11 @@
       "autor": "Addy Osmani (Google Chrome)",
       "commit": "afa8da942115f2961fdbfa80807ea0b232ff6c00",
       "licenca": "MIT"
+    },
+    "JuliusBrussee/caveman": {
+      "autor": "Julius Brussee",
+      "commit": "d262ab3882952a59312ff3537cd86d894523c5ab",
+      "licenca": "Apache-2.0"
     }
   },
   "skills": {
@@ -123,6 +128,13 @@
       "categoria": "frontend",
       "fonte": "ai-office",
       "recomendada": true
+    },
+    "caveman": {
+      "categoria": "geral",
+      "melhor": true,
+      "fonte": "JuliusBrussee/caveman",
+      "caminho": "skills/caveman",
+      "porque": "Respostas curtas sem perder fatos técnicos: corta os tokens de saída. Fica sempre ligada no Claude (ajustável em Configurações)."
     }
   },
   "fora": [

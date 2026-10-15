@@ -15,6 +15,8 @@ export const DEFAULT_SETTINGS = {
       bin: 'claude',
       model: '',
       effort: '',
+      alwaysSkills: ['caveman'],
+      loadMcp: false,
       allowedTools: 'Bash(npm test:*) Bash(npm run:*) Bash(npx vitest:*) Bash(npx jest:*) Bash(git status:*) Bash(git diff:*)',
       maxBudgetUsd: 0,
       extraArgs: '',
@@ -24,12 +26,13 @@ export const DEFAULT_SETTINGS = {
       bin: 'codex',
       model: '',
       effort: '',
+      alwaysSkills: [],
       extraArgs: '',
     },
   },
 };
 
-const emptyStats = () => ({ steps: 0, input: 0, cachedInput: 0, output: 0, costUsd: 0, ms: 0, aprovadas: 0, reprovadas: 0, revisoes: 0, falhas: 0 });
+const emptyStats = () => ({ steps: 0, input: 0, cachedInput: 0, output: 0, costUsd: 0, ms: 0, aprovadas: 0, reprovadas: 0, revisoes: 0, falhas: 0, savedCache: 0, savedHandoff: 0, savedUsd: 0 });
 
 export function defaultStats() {
   return { claude: emptyStats(), codex: emptyStats() };
