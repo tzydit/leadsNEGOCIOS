@@ -60,3 +60,13 @@ test('prompt aponta os arquivos de apoio e o Claude ganha acesso de leitura a el
   assert.deepEqual(args.slice(args.indexOf('--add-dir'), args.indexOf('--add-dir') + 2), ['--add-dir', SKILLS_DIR]);
   assert.ok(!buildClaudeArgs({ role: 'auditar', config: {} }).includes('--add-dir'));
 });
+
+test('com várias skills, o prompt diz como resolver conflitos entre elas', () => {
+  const base = { line: { name: 'L' }, stepIndex: 0, totalSteps: 1, skills, round: 1 };
+  const one = buildPrompt({ ...base, step: { role: 'revisar', worker: 'codex', instruction: 'x', skills: ['economia-tokens'] } });
+  assert.doesNotMatch(one, /Se conflitarem/);
+  const many = buildPrompt({ ...base, step: { role: 'revisar', worker: 'codex', instruction: 'x', skills: ['economia-tokens', 'differential-review'] } });
+  assert.match(many, /Se conflitarem: o papel e o "Formato da resposta"/);
+  assert.match(many, /não grave relatórios em arquivo/);
+  assert.ok(many.indexOf('Se conflitarem') < many.indexOf('skill: economia-tokens'));
+});

@@ -128,6 +128,11 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
   const chosen = (step.skills ?? []).map((n) => skills.find((s) => s.name === n)).filter(Boolean);
   if (chosen.length) {
     parts.push('# Skills obrigatórias desta etapa');
+    if (chosen.length > 1) {
+      parts.push(
+        'Use todas juntas. Se conflitarem: o papel e o "Formato da resposta" no fim deste prompt vencem (não grave relatórios em arquivo se o papel não edita arquivos; entregue o conteúdo na resposta); as skills de conteúdo (front-end, segurança, revisão) decidem O QUE verificar ou fazer; economia-tokens decide COMO ler e escrever (pouco e direto), sem pular verificações que as outras exigem.',
+      );
+    }
     for (const s of chosen) {
       // Skills grandes trazem referências em arquivos; a IA lê só o que precisar.
       const files = s.hasFiles ? `\n(Arquivos de apoio desta skill — referências citadas acima: ${s.dir})` : '';
