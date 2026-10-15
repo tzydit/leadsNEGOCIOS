@@ -70,6 +70,13 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 .worker-chip canvas { width: 24px; height: 36px; image-rendering: pixelated; }
 .worker-chip .wname { font-family: var(--pixel); font-size: 12px; white-space: nowrap; }
 .worker-chip > div { min-width: 0; }
+.wpick { display: flex; gap: 3px; margin: 2px 0; }
+.wpick select { font-size: 11px; padding: 1px 4px; max-width: 140px; min-width: 0; background: #11131b; }
+.wpick select[data-chip-effort] { max-width: 110px; }
+.model-row { display: flex; gap: 6px; align-items: center; }
+.model-row select { flex: 1; min-width: 0; }
+.model-row select[data-s=effort] { flex: 0 1 130px; }
+.model-row label { white-space: nowrap; }
 .worker-chip .wmeta { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mode { font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: .5px; }
 .mode.real { background: rgba(124, 201, 106, .15); color: var(--ok); }

@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
       mode: 'auto', // auto | real | simulado
       bin: 'claude',
       model: '',
+      effort: '',
       allowedTools: 'Bash(npm test:*) Bash(npm run:*) Bash(npx vitest:*) Bash(npx jest:*) Bash(git status:*) Bash(git diff:*)',
       maxBudgetUsd: 0,
       extraArgs: '',
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS = {
       mode: 'auto',
       bin: 'codex',
       model: '',
+      effort: '',
       extraArgs: '',
     },
   },

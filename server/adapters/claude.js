@@ -115,6 +115,7 @@ export function parseClaudeEvent(obj, st) {
 export function buildClaudeArgs({ role, config }) {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
   if (config.model) args.push('--model', config.model);
+  if (config.effort) args.push('--effort', config.effort);
   if (READ_ONLY_ROLES.has(role)) {
     args.push('--permission-mode', 'dontAsk', '--allowedTools', ...READ_ONLY_TOOLS);
   } else {

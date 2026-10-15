@@ -9,6 +9,7 @@ import { ensureWorktree, getDiff, headCommit, isGitRepo } from './git.js';
 import { buildPrompt, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
 import { detectCli } from './proc.js';
 import { attemptCost } from './pricing.js';
+import { CLAUDE_MODELS, CODEX_FALLBACK, loadCodexModels } from './models.js';
 
 const LOG_LIMIT = 400;
 const total = (u) => (u?.input ?? 0) + (u?.output ?? 0);
@@ -18,7 +19,7 @@ const total = (u) => (u?.input ?? 0) + (u?.output ?? 0);
  * linhas diferentes rodam em paralelo (cada uma no seu worktree).
  */
 export class Orchestrator extends EventEmitter {
-  constructor({ store, skills, worktreesDir, runners = {}, detect = detectCli }) {
+  constructor({ store, skills, worktreesDir, runners = {}, detect = detectCli, loadModels = loadCodexModels }) {
     super();
     this.store = store;
     this.skills = skills;
@@ -26,6 +27,8 @@ export class Orchestrator extends EventEmitter {
     this.real = { claude: runners.claude ?? runClaude, codex: runners.codex ?? runCodex };
     this.simulated = runners.simulated ?? createSimulatedRunner();
     this.detectFn = detect;
+    this.loadModels = loadModels;
+    this.models = { claude: { models: CLAUDE_MODELS, source: 'lista' }, codex: { models: [], source: 'nenhum' } };
     this.cli = { claude: { available: false }, codex: { available: false } };
     this.active = new Map(); // lineId -> { kill, stopped }
     this.throttle = new Map();
@@ -35,6 +38,8 @@ export class Orchestrator extends EventEmitter {
     const s = this.store.settings.workers;
     const [claude, codex] = await Promise.all([this.detectFn(s.claude.bin || 'claude'), this.detectFn(s.codex.bin || 'codex')]);
     this.cli = { claude, codex };
+    // A lista do Codex vem do próprio CLI; sem ele, uma lista salva.
+    this.models.codex = codex.available ? await this.loadModels(s.codex.bin || 'codex') : { models: CODEX_FALLBACK, source: 'fallback' };
     return this.workersInfo();
   }
 
@@ -195,10 +200,15 @@ export class Orchestrator extends EventEmitter {
       const diff = needsDiff ? await getDiff(where.dir, where.base, settings.diffMaxChars) : null;
       const prompt = buildPrompt({ line, step, stepIndex: i, totalSteps: line.steps.length, skills: this.skills, previous, diff, baseCommit: where.base, feedback: step.role === 'executar' ? feedback : null, round: run.round });
       if (step.role === 'executar') feedback = null;
-      this.log(line, { step: i, worker: step.worker, kind: 'info', text: `${WORKERS[step.worker].name} começou: ${step.role} (${mode}) · prompt ~${Math.round(prompt.length / 4)} tokens` });
+      const chosen = [step.model || settings.workers[step.worker].model || 'modelo padrão', step.effort || settings.workers[step.worker].effort].filter(Boolean).join(' · ');
+      this.log(line, { step: i, worker: step.worker, kind: 'info', text: `${WORKERS[step.worker].name} começou: ${step.role} (${mode}) · ${chosen} · prompt ~${Math.round(prompt.length / 4)} tokens` });
 
       const runner = mode === 'real' ? this.real[step.worker] : this.simulated;
-      const cfg = { ...settings.workers[step.worker], model: step.model || settings.workers[step.worker].model };
+      const cfg = {
+        ...settings.workers[step.worker],
+        model: step.model || settings.workers[step.worker].model,
+        effort: step.effort || settings.workers[step.worker].effort,
+      };
       const handle = runner({
         prompt,
         cwd: where.dir ?? process.cwd(),

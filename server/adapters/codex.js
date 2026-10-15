@@ -101,6 +101,8 @@ export function buildCodexArgs({ role, cwd, config }) {
   const args = ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '-C', cwd];
   args.push('--sandbox', READ_ONLY_ROLES.has(role) ? 'read-only' : 'workspace-write');
   if (config.model) args.push('-m', config.model);
+  // Sem aspas: o Codex usa o texto cru quando não é TOML, e aspas quebram no cmd.exe.
+  if (config.effort) args.push('-c', `model_reasoning_effort=${config.effort}`);
   args.push(...splitArgs(config.extraArgs));
   args.push('-'); // prompt via stdin
   return args;

@@ -48,6 +48,14 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 | Planejar | escreve um plano para a próxima IA | somente leitura |
 | Análise fria | diagnóstico do projeto inteiro | somente leitura |
 
+## Modelos e raciocínio
+
+- **No topo**, no cartão de cada IA, escolha o **modelo padrão** e o **nível de raciocínio** padrão. Vale para todas as etapas que não escolherem outro.
+- **Em cada etapa**, dá para trocar o modelo e o raciocínio só daquela etapa (ex.: Opus para executar, Haiku para revisar).
+- A lista do **Codex** vem do próprio CLI (`codex debug models`), com os níveis de raciocínio de cada modelo. A do **Claude** segue os modelos atuais. Use **Outro… (digitar)** para qualquer nome que o CLI aceite.
+- Por baixo: Claude recebe `--model` e `--effort`; Codex recebe `-m` e `-c model_reasoning_effort=…`. O log **Ao vivo** mostra o modelo usado em cada etapa.
+- Para o custo estimado ficar certo, o modelo escolhido precisa ter preço na tabela de ⚙ Configurações (senão vale `claude-padrao` / `codex-padrao`).
+
 ## Custos em tempo real
 
 No topo do escritório: **agora** (o que as etapas em andamento já gastaram, subindo ao vivo), **hoje** e o gasto real das contas, se configurado. Cada sala mostra quanto a linha custou. Clique no painel de custos para ver o detalhe por dia.

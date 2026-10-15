@@ -1,3 +1,4 @@
+import { EFFORT_RE, MODEL_RE } from './models.js';
 import { ROLES, WORKERS } from './prompts.js';
 
 export const MAX_STEPS = 12;
@@ -48,6 +49,10 @@ export const TEMPLATES = {
 };
 
 const str = (v, max) => String(v ?? '').slice(0, max);
+const validOr = (v, re, what) => {
+  if (v && !re.test(v)) throw new Error(`${what} inválido: ${v}`);
+  return v;
+};
 
 /** Valida e normaliza a configuração de uma linha vinda do cliente. */
 export function sanitizeLine(input, knownSkills) {
@@ -72,7 +77,8 @@ export function sanitizeLine(input, knownSkills) {
         role: s.role,
         instruction: str(s.instruction, 8000),
         skills: Array.isArray(s.skills) ? [...new Set(s.skills.filter((n) => knownSkills.has(n)))] : [],
-        model: str(s.model, 80).trim(),
+        model: validOr(str(s.model, 80).trim(), MODEL_RE, 'modelo'),
+        effort: validOr(str(s.effort, 16).trim(), EFFORT_RE, 'raciocínio'),
       };
     });
   }
@@ -88,7 +94,7 @@ export function newLine({ id, index, template = 'claude-faz-codex-revisa', workd
     useWorktree: true,
     tokenBudget: 0,
     loop: { ...t.loop },
-    steps: t.steps().map((s) => ({ ...s, model: '' })),
+    steps: t.steps().map((s) => ({ ...s, model: '', effort: '' })),
     run: null,
   };
 }

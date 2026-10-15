@@ -4,6 +4,7 @@ import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { MAX_STEPS, TEMPLATES, newLine, sanitizeLine } from './lines.js';
 import { ROLES, WORKERS } from './prompts.js';
+import { EFFORT_RE, MODEL_RE } from './models.js';
 import { sanitizePricing } from './pricing.js';
 import { defaultStats, mergeSettings } from './store.js';
 import { hostAllowed, localOnly, originAllowed } from './security.js';
@@ -34,6 +35,7 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     costDaily: store.data.costDaily,
     billing: billing?.state ?? {},
     workers: orchestrator.workersInfo(),
+    models: orchestrator.models,
     skills: skills.map(({ name, description }) => ({ name, description })),
     roles: Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, defaultSkills: v.defaultSkills }])),
     templates: Object.fromEntries(Object.entries(TEMPLATES).map(([k, v]) => [k, v.label])),
@@ -72,7 +74,9 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
         if (!['auto', 'real', 'simulado'].includes(src.mode)) throw new Error('modo inválido');
         dst.mode = src.mode;
       }
-      for (const k of ['bin', 'model', 'extraArgs', 'allowedTools']) if (src[k] !== undefined) dst[k] = String(src[k]).slice(0, 1000).trim();
+      for (const k of ['bin', 'model', 'effort', 'extraArgs', 'allowedTools']) if (src[k] !== undefined) dst[k] = String(src[k]).slice(0, 1000).trim();
+      if (dst.model && !MODEL_RE.test(dst.model)) throw new Error(`modelo inválido: ${dst.model}`);
+      if (dst.effort && !EFFORT_RE.test(dst.effort)) throw new Error(`raciocínio inválido: ${dst.effort}`);
       if (src.maxBudgetUsd !== undefined) dst.maxBudgetUsd = Math.max(0, Number(src.maxBudgetUsd) || 0);
       patch.workers[w] = dst;
     }

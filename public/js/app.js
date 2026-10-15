@@ -152,23 +152,49 @@ async function flushSave(id) {
 
 function renderWorkers() {
   const box = $('#workers');
-  box.innerHTML = '';
   for (const [w, info] of Object.entries(S.data.workers)) {
+    let chip = box.querySelector(`[data-chip="${w}"]`);
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.className = 'worker-chip';
+      chip.dataset.chip = w;
+      chip.style.setProperty('--wc', WORKER_STYLE[w].color);
+      chip.innerHTML = `
+        <canvas width="24" height="36" aria-hidden="true"></canvas>
+        <div>
+          <div class="wname">${esc(wname(w))} <span class="mode"></span></div>
+          <div class="wpick">
+            <select data-chip-model="${w}" aria-label="Modelo padrão do ${esc(wname(w))}"></select>
+            <select data-chip-effort="${w}" aria-label="Raciocínio padrão do ${esc(wname(w))}"></select>
+          </div>
+          <div class="wmeta"></div>
+        </div>`;
+      const cv = chip.querySelector('canvas').getContext('2d');
+      cv.imageSmoothingEnabled = false;
+      cv.drawImage(sprite(w, 'walk0', 2), 0, 0);
+      box.append(chip);
+    }
     const st = S.data.stats[w];
-    const chip = document.createElement('div');
-    chip.className = 'worker-chip';
-    chip.style.setProperty('--wc', WORKER_STYLE[w].color);
     const busy = S.data.lines.filter((l) => l.run?.status === 'running' && l.run.attempts.at(-1)?.worker === w).length;
-    chip.innerHTML = `
-      <canvas width="24" height="36" aria-hidden="true"></canvas>
-      <div>
-        <div class="wname">${esc(wname(w))} <span class="mode ${info.mode}" title="${info.mode === 'simulado' ? 'CLI não encontrado ou modo simulado: nada é executado de verdade' : 'Executando o CLI de verdade'}">${info.mode}</span></div>
-        <div class="wmeta" title="${busy ? `trabalhando em ${busy} sala(s)` : 'na copa'}">${busy ? `▶ ${busy} sala${busy > 1 ? 's' : ''}` : 'na copa'} · ${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}</div>
-      </div>`;
-    const cv = chip.querySelector('canvas').getContext('2d');
-    cv.imageSmoothingEnabled = false;
-    cv.drawImage(sprite(w, 'walk0', 2), 0, 0);
-    box.append(chip);
+    const mode = chip.querySelector('.mode');
+    mode.className = `mode ${info.mode}`;
+    mode.textContent = info.mode;
+    mode.title = info.mode === 'simulado' ? 'CLI não encontrado ou modo simulado: nada é executado de verdade' : 'Executando o CLI de verdade';
+    const meta = chip.querySelector('.wmeta');
+    meta.title = busy ? `trabalhando em ${busy} sala(s)` : 'na copa';
+    meta.textContent = `${busy ? `▶ ${busy} sala${busy > 1 ? 's' : ''}` : 'na copa'} · ${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}`;
+    // Recria as opções só quando mudam e o usuário não está mexendo nelas.
+    const cfg = S.data.settings.workers[w];
+    const ms = chip.querySelector('[data-chip-model]');
+    const es = chip.querySelector('[data-chip-effort]');
+    const sig = JSON.stringify([cfg.model, cfg.effort, S.data.models?.[w]?.models?.length]);
+    if (ms.dataset.sig !== sig && document.activeElement !== ms && document.activeElement !== es) {
+      ms.innerHTML = modelOptions(w, cfg.model, 'Padrão do CLI');
+      es.innerHTML = effortOptions(w, cfg.model, cfg.effort, 'raciocínio: padrão');
+      ms.dataset.sig = sig;
+      ms.dataset.prev = cfg.model;
+      ms.title = modelInfo(w, cfg.model)?.description || 'Modelo usado quando a etapa não escolhe outro';
+    }
   }
   renderCosts();
   const sel = $('#tplSelect');
@@ -340,7 +366,12 @@ function stepCard(s, i, n, last) {
     <div class="skills">
       ${S.data.skills.map((k) => `<button type="button" class="skill-chip" data-skill="${esc(k.name)}" aria-pressed="${s.skills.includes(k.name)}" title="${esc(k.description)}">${esc(k.name)}</button>`).join('')}
     </div>
-    <div class="inline"><label for="mdl-${i}">Modelo</label><input id="mdl-${i}" type="text" data-s="model" value="${esc(s.model ?? '')}" placeholder="padrão das configurações" style="flex:1"></div>
+    <div class="model-row">
+      <label for="mdl-${i}">Modelo</label>
+      <select id="mdl-${i}" data-s="model" data-prev="${esc(s.model ?? '')}" title="${esc(modelInfo(s.worker, s.model)?.description ?? '')}">${modelOptions(s.worker, s.model, `Padrão (${modelLabel(s.worker, S.data.settings.workers[s.worker].model) || 'do CLI'})`)}</select>
+      <label for="eff-${i}">Raciocínio</label>
+      <select id="eff-${i}" data-s="effort">${effortOptions(s.worker, s.model || S.data.settings.workers[s.worker].model, s.effort, `Padrão${S.data.settings.workers[s.worker].effort ? ` (${EFFORT_LABEL[S.data.settings.workers[s.worker].effort] ?? S.data.settings.workers[s.worker].effort})` : ''}`)}</select>
+    </div>
     ${meta}
   </div>`;
 }
@@ -489,7 +520,8 @@ function settingsHtml() {
           ${['auto', 'real', 'simulado'].map((m) => `<option value="${m}" ${c.mode === m ? 'selected' : ''}>${m === 'auto' ? 'auto (real se instalado)' : m}</option>`).join('')}
         </select></div>
         <div class="field"><label>Comando</label><input type="text" name="${k}.bin" value="${esc(c.bin)}"></div>
-        <div class="field"><label>Modelo padrão</label><input type="text" name="${k}.model" value="${esc(c.model)}" placeholder="padrão do CLI"></div>
+        <div class="field"><label>Modelo padrão</label><select name="${k}.model" data-prev="${esc(c.model)}">${modelOptions(k, c.model, 'Padrão do CLI')}</select></div>
+        <div class="field"><label>Raciocínio padrão</label><select name="${k}.effort">${effortOptions(k, c.model, c.effort, 'Padrão do modelo')}</select></div>
         <div class="field"><label>Argumentos extras</label><input type="text" name="${k}.extraArgs" value="${esc(c.extraArgs)}"></div>
         ${k === 'claude'
           ? `<div class="field full"><label>Comandos liberados ao executar (allowedTools)</label><input type="text" name="claude.allowedTools" value="${esc(c.allowedTools)}"></div>
@@ -574,9 +606,17 @@ function wirePanel() {
     const card = t.closest('.step');
     if (card && t.tagName === 'SELECT') {
       const i = +card.dataset.i;
+      if (t.dataset.s === 'model' && t.value === '__custom__' && !askCustomModel(t)) return;
       mutate(id, (d) => {
-        d.steps[i][t.dataset.s] = t.value;
-        if (t.dataset.s === 'role') d.steps[i].skills = [...S.data.roles[t.value].defaultSkills];
+        const st = d.steps[i];
+        st[t.dataset.s] = t.value;
+        if (t.dataset.s === 'role') st.skills = [...S.data.roles[t.value].defaultSkills];
+        // Cada IA tem seus próprios modelos: trocar de IA volta para o padrão.
+        if (t.dataset.s === 'worker') {
+          st.model = '';
+          st.effort = '';
+        }
+        if (t.dataset.s === 'model' && st.effort && !effortsFor(st.worker, st.model || S.data.settings.workers[st.worker].model).includes(st.effort)) st.effort = '';
       });
       renderPanel();
     }
@@ -785,6 +825,47 @@ function costsHtml() {
     <button class="btn small" data-act="billing-refresh" ${Object.values(S.data.billing ?? {}).some((b) => b.configured) ? '' : 'disabled'}>Atualizar contas agora</button>`;
 }
 
+// ---- modelos ---------------------------------------------------------------
+
+const EFFORT_LABEL = { low: 'baixo', medium: 'médio', high: 'alto', xhigh: 'muito alto', max: 'máximo', ultra: 'ultra' };
+const DEFAULT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const models = (w) => S.data.models?.[w]?.models ?? [];
+const modelInfo = (w, id) => models(w).find((m) => m.id === id);
+const modelLabel = (w, id) => (id ? modelInfo(w, id)?.label ?? id : '');
+const effortsFor = (w, id) => {
+  const m = id && modelInfo(w, id);
+  return m?.efforts?.length ? m.efforts : DEFAULT_EFFORTS;
+};
+
+function modelOptions(w, selected, defaultLabel) {
+  const opts = [`<option value="">${esc(defaultLabel)}</option>`];
+  for (const m of models(w)) opts.push(`<option value="${esc(m.id)}" ${m.id === selected ? 'selected' : ''}>${esc(m.label)}</option>`);
+  if (selected && !modelInfo(w, selected)) opts.push(`<option value="${esc(selected)}" selected>${esc(selected)}</option>`);
+  opts.push('<option value="__custom__">Outro… (digitar)</option>');
+  return opts.join('');
+}
+
+function effortOptions(w, model, selected, defaultLabel) {
+  const list = effortsFor(w, model);
+  const opts = [`<option value="">${esc(defaultLabel)}</option>`];
+  for (const e of list) opts.push(`<option value="${e}" ${e === selected ? 'selected' : ''}>${EFFORT_LABEL[e] ?? e}</option>`);
+  if (selected && !list.includes(selected)) opts.push(`<option value="${esc(selected)}" selected>${esc(selected)}</option>`);
+  return opts.join('');
+}
+
+/** "Outro…": pede o nome do modelo; devolve false (e desfaz) se cancelar ou for inválido. */
+function askCustomModel(sel) {
+  const v = (prompt('Nome exato do modelo (como o CLI aceita em --model / -m):') ?? '').trim();
+  if (!v || !/^[\w.:\-[\]/]{1,80}$/.test(v)) {
+    if (v) toast('Nome de modelo inválido', true);
+    sel.value = sel.dataset.prev ?? '';
+    return false;
+  }
+  if (![...sel.options].some((o) => o.value === v)) sel.add(new Option(v, v), sel.options.length - 1);
+  sel.value = v;
+  return true;
+}
+
 function pricingRow(i, name, p) {
   const cell = (f) => `<td><input type="number" min="0" step="any" name="price.${i}.${f}" value="${p[f] ?? 0}" aria-label="${f}"></td>`;
   return `<tr><td><input type="text" name="price.${i}.name" value="${esc(name)}" placeholder="nome-do-modelo" aria-label="modelo"></td>${['input', 'cacheRead', 'cacheWrite', 'output'].map(cell).join('')}<td><button class="btn ghost small" type="button" data-act="del-price" aria-label="Remover">✕</button></td></tr>`;
@@ -814,6 +895,28 @@ const office = new Office($('#office'), {
 });
 
 $('#btnNewLine').onclick = createLine;
+$('#workers').addEventListener('change', safe(async (e) => {
+  const t = e.target;
+  const w = t.dataset.chipModel || t.dataset.chipEffort;
+  if (!w) return;
+  if (t.dataset.chipModel && t.value === '__custom__' && !askCustomModel(t)) return;
+  const patch = t.dataset.chipModel ? { model: t.value } : { effort: t.value };
+  // Modelo novo pode não ter o nível de raciocínio escolhido antes.
+  const cur = S.data.settings.workers[w];
+  if (patch.model !== undefined && cur.effort && !effortsFor(w, patch.model).includes(cur.effort)) patch.effort = '';
+  t.blur();
+  await api('PUT', '/api/settings', { workers: { [w]: patch } });
+  toast(`${wname(w)}: ${patch.model !== undefined ? `modelo ${modelLabel(w, patch.model) || 'padrão do CLI'}` : `raciocínio ${EFFORT_LABEL[patch.effort] ?? 'padrão'}`}`);
+}));
+$('#modal').addEventListener('change', (e) => {
+  const t = e.target;
+  if (!t.name?.endsWith('.model')) return;
+  if (t.value === '__custom__' && !askCustomModel(t)) return;
+  t.dataset.prev = t.value;
+  const w = t.name.split('.')[0];
+  const eff = $(`select[name="${w}.effort"]`);
+  if (eff) eff.innerHTML = effortOptions(w, t.value, eff.value, 'Padrão do modelo');
+});
 $('#btnCompare').onclick = () => openModal('Comparativo Claude × Codex', compareHtml());
 $('#costs').onclick = () => openModal('Custos', costsHtml());
 $('#btnSettings').onclick = () => openModal('Configurações', settingsHtml());
