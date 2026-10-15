@@ -1,3 +1,4 @@
+import { VERDICT_ROLES } from '../prompts.js';
 import { emptyUsage } from './common.js';
 
 // Roteiros de demonstração: deixam o escritório "vivo" sem nenhum CLI instalado.
@@ -36,10 +37,16 @@ const SCRIPTS = {
   ],
 };
 SCRIPTS.analisar = SCRIPTS.planejar;
+SCRIPTS.revisar_corrigir = [...SCRIPTS.revisar.slice(0, 4), ['file', 'Editando routes.js'], ['command', '$ npm test -- routes']];
+SCRIPTS.auditar_corrigir = [...SCRIPTS.auditar.slice(0, 5), ['file', 'Editando auth.js']];
+SCRIPTS.analisar_corrigir = [...SCRIPTS.planejar.slice(0, 3), ['file', 'Editando index.js']];
 
 function finalTextFor(role, verdict, worker) {
   if (role === 'executar') {
     return `Implementação feita (simulação ${worker}).\nRESUMO:\n- routes.js: validação de entrada nas rotas\n- validators.js: novo, schemas de validação\n- testes de rota passando`;
+  }
+  if (role.endsWith('_corrigir')) {
+    return `[IMPORTANTE] routes.js:42 — id inexistente retornava 500 → ✔ corrigido\n[MENOR] routes.js:10 — nome pouco claro → ✖ não corrigido (fora do escopo)\nRESUMO:\n- 1 achado corrigido, 1 deixado (simulação ${worker})`;
   }
   if (role === 'planejar' || role === 'analisar') {
     return `NOTA GERAL: 6/10 — estrutura ok, falta validação nas bordas.\nPRÓXIMOS PASSOS:\n1. Validar entradas\n2. Testes de rota\nRESUMO:\n- plano em 2 passos (simulação ${worker})`;
@@ -78,7 +85,7 @@ export function createSimulatedRunner({ stepMs = 1400, decide = defaultDecide } 
         timer = setTimeout(tick, stepMs * (0.6 + Math.random() * 0.8));
         return;
       }
-      const verdict = role === 'executar' || role === 'planejar' || role === 'analisar' ? null : decide({ role, round, worker });
+      const verdict = VERDICT_ROLES.has(role) ? decide({ role, round, worker }) : null;
       const finalText = finalTextFor(role, verdict, worker);
       onEvent({ kind: 'text', text: finalText });
       resolveDone({ ok: true, finalText, usage });

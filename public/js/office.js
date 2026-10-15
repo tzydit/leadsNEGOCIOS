@@ -31,9 +31,9 @@ const WORLD_H = ROAD_Y + ROAD_H + 22 + 46;
 // Uma sala por tipo de trabalho; as linhas dividem as mesas.
 const WORK_ROOMS = [
   { kind: 'dev', col: 1, row: 0, title: 'Desenvolvimento', icon: '🛠', roles: ['executar'], carpet: ['#c8d3e0', '#d9e2ec'] },
-  { kind: 'review', col: 1, row: 1, title: 'Revisão', icon: '🔍', roles: ['revisar'], carpet: ['#d6cde6', '#e5ddf0'] },
-  { kind: 'security', col: 2, row: 0, title: 'Segurança', icon: '🛡', roles: ['auditar'], carpet: ['#e3cccc', '#efdcdc'] },
-  { kind: 'plan', col: 2, row: 1, title: 'Planejamento', icon: '🧭', roles: ['planejar', 'analisar'], carpet: ['#d0e0c8', '#e0ecd9'] },
+  { kind: 'review', col: 1, row: 1, title: 'Revisão', icon: '🔍', roles: ['revisar', 'revisar_corrigir'], carpet: ['#d6cde6', '#e5ddf0'] },
+  { kind: 'security', col: 2, row: 0, title: 'Segurança', icon: '🛡', roles: ['auditar', 'auditar_corrigir'], carpet: ['#e3cccc', '#efdcdc'] },
+  { kind: 'plan', col: 2, row: 1, title: 'Planejamento', icon: '🧭', roles: ['planejar', 'analisar', 'analisar_corrigir'], carpet: ['#d0e0c8', '#e0ecd9'] },
 ];
 const ROOM_OF_ROLE = Object.fromEntries(WORK_ROOMS.flatMap((r) => r.roles.map((role) => [role, r.kind])));
 const COL_W = [RW, WRW, WRW];

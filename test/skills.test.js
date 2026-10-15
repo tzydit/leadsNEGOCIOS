@@ -83,3 +83,14 @@ test('caveman fica sempre ligado no Claude e o Claude roda sem os MCPs do usuár
   const ro = buildClaudeArgs({ role: 'revisar', config: {} });
   assert.ok(ro.includes('Bash(grep:*)') && !ro.includes('Bash(npm run:*)'));
 });
+
+test('papéis "e corrigir" editam arquivos no Claude e no Codex', async () => {
+  const { buildClaudeArgs } = await import('../server/adapters/claude.js');
+  const { buildCodexArgs } = await import('../server/adapters/codex.js');
+  for (const role of ['revisar_corrigir', 'auditar_corrigir', 'analisar_corrigir']) {
+    const c = buildClaudeArgs({ role, config: {} });
+    assert.equal(c[c.indexOf('--permission-mode') + 1], 'acceptEdits', role);
+    const x = buildCodexArgs({ role, cwd: '/tmp', config: {} });
+    assert.equal(x[x.indexOf('--sandbox') + 1], 'workspace-write', role);
+  }
+});

@@ -16,6 +16,11 @@ export const TEMPLATES = {
     loop: { enabled: true, maxRounds: 2 },
     steps: () => [step('codex', 'executar'), step('claude', 'revisar', 'Revise as mudanças da etapa anterior.')],
   },
+  'claude-faz-codex-revisa-corrige': {
+    label: 'Claude faz → Codex revisa e corrige',
+    loop: { enabled: false, maxRounds: 1 },
+    steps: () => [step('claude', 'executar'), step('codex', 'revisar_corrigir', 'Revise as mudanças da etapa anterior e corrija o que encontrar.')],
+  },
   'planejar-executar-revisar': {
     label: 'Claude planeja → Codex faz → Claude revisa',
     loop: { enabled: true, maxRounds: 2 },

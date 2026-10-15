@@ -12,9 +12,18 @@ export const ROLES = {
   auditar: { label: 'Auditar segurança', defaultSkills: ['economia-tokens', 'auditoria-seguranca', 'security-best-practices'] },
   planejar: { label: 'Planejar', defaultSkills: ['economia-tokens'] },
   analisar: { label: 'Análise fria', defaultSkills: ['economia-tokens', 'analise-fria'] },
+  // Revisam e já aplicam o que acharam (editam arquivos).
+  revisar_corrigir: { label: 'Revisar e corrigir', defaultSkills: ['economia-tokens', 'revisao-codigo'] },
+  auditar_corrigir: { label: 'Auditar e corrigir', defaultSkills: ['economia-tokens', 'auditoria-seguranca', 'security-best-practices'] },
+  analisar_corrigir: { label: 'Analisar e corrigir', defaultSkills: ['economia-tokens', 'analise-fria'] },
 };
 
 export const VERDICT_ROLES = new Set(['revisar', 'auditar']);
+/** Papéis que editam arquivos (o resto é somente leitura). */
+export const EDIT_ROLES = new Set(['executar', 'revisar_corrigir', 'auditar_corrigir', 'analisar_corrigir']);
+/** Papéis que recebem o diff da etapa que editou antes. */
+export const DIFF_ROLES = new Set(['revisar', 'auditar', 'analisar', 'revisar_corrigir', 'auditar_corrigir', 'analisar_corrigir']);
+const FIX_ROLES = new Set(['revisar_corrigir', 'auditar_corrigir', 'analisar_corrigir']);
 
 /** Lê o frontmatter YAML simples de um SKILL.md (chaves de topo, aspas e blocos > ou |). */
 export function parseFrontmatter(raw) {
@@ -118,6 +127,12 @@ const ROLE_BRIEF = {
   auditar: 'Você é o AUDITOR DE SEGURANÇA desta linha. NÃO edite arquivos. Procure vulnerabilidades exploráveis.',
   planejar: 'Você é o PLANEJADOR desta linha. NÃO edite arquivos. Produza um plano curto e executável por outra IA.',
   analisar: 'Você é o ANALISTA desta linha. NÃO edite arquivos. Faça um diagnóstico frio e honesto.',
+  revisar_corrigir:
+    'Você é o REVISOR-CORRETOR desta linha. 1) Revise friamente as mudanças da etapa anterior. 2) Corrija você mesmo, editando os arquivos, os itens BLOQUEANTE e IMPORTANTE. Não mude o escopo nem refaça o que está certo. Não faça commit nem push.',
+  auditar_corrigir:
+    'Você é o AUDITOR-CORRETOR DE SEGURANÇA desta linha. 1) Procure vulnerabilidades exploráveis (nas mudanças abaixo ou, sem mudanças, no projeto). 2) Corrija você mesmo, editando os arquivos, as de severidade ALTA e MÉDIA, com a menor mudança segura. Não faça commit nem push.',
+  analisar_corrigir:
+    'Você é o ANALISTA-CORRETOR desta linha. 1) Faça um diagnóstico frio do projeto. 2) Aplique você mesmo, editando os arquivos, as melhorias mais importantes que couberem nesta etapa. Não faça commit nem push.',
 };
 
 /**
@@ -159,7 +174,7 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
         `\`\`\`\n${diff.stat}\n\`\`\`\n\`\`\`diff\n${diff.diff}\n\`\`\`` +
         (diff.truncated ? `\n(diff truncado — rode \`git diff ${baseCommit ? baseCommit.slice(0, 10) : 'HEAD'} -- <arquivo>\` só nos arquivos que precisar)` : ''),
     );
-  } else if (diff && diff.empty && VERDICT_ROLES.has(step.role)) {
+  } else if (diff && diff.empty && (VERDICT_ROLES.has(step.role) || FIX_ROLES.has(step.role))) {
     parts.push('## Mudanças a analisar\nNenhuma mudança no diretório. Analise o projeto conforme a instrução.');
   }
 
@@ -180,6 +195,7 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
     'Termine com `RESUMO:` (no máximo 5 linhas) — é o que a próxima IA vai receber.',
   ];
   if (step.role === 'planejar') out.push('No RESUMO, coloque o plano em passos numerados.');
+  if (FIX_ROLES.has(step.role)) out.push('Liste cada achado em uma linha: `[SEVERIDADE] arquivo:linha — problema → ✔ corrigido` ou `→ ✖ não corrigido (motivo)`. Não precisa de VEREDITO: quem corrige é você.');
   if (VERDICT_ROLES.has(step.role)) out.push('A ÚLTIMA linha deve ser exatamente `VEREDITO: APROVADO` ou `VEREDITO: MUDANCAS_NECESSARIAS`.');
   parts.push(out.join('\n'));
 

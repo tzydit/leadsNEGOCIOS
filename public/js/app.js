@@ -301,7 +301,7 @@ function fixChoice(line, p) {
   if (saved) return saved;
   const f = line.loop?.fixer;
   if (f?.worker) return { ...f };
-  const exec = line.steps.slice(0, p.step).reverse().find((s) => s.role === 'executar');
+  const exec = line.steps.slice(0, p.step).reverse().find((s) => EDIT_ROLES.has(s.role));
   return { worker: exec?.worker ?? (p.worker === 'claude' ? 'codex' : 'claude'), model: exec?.model ?? '', effort: exec?.effort ?? '' };
 }
 
@@ -413,7 +413,20 @@ const ROLE_HINT = {
   auditar: 'o foco da auditoria de segurança',
   planejar: 'o que ele deve planejar',
   analisar: 'o que ele deve analisar',
+  revisar_corrigir: 'o que ele deve revisar e corrigir',
+  auditar_corrigir: 'o foco da auditoria (ele corrige o que achar)',
+  analisar_corrigir: 'o que ele deve analisar e melhorar',
 };
+// Papéis que editam arquivos (os outros só leem e respondem).
+const EDIT_ROLES = new Set(['executar', 'revisar_corrigir', 'auditar_corrigir', 'analisar_corrigir']);
+
+/** Papel agrupado: só lê × lê e já aplica o que achou. */
+function roleOptions(selected) {
+  const opt = ([k, r]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(r.label)}</option>`;
+  const all = Object.entries(S.data.roles);
+  return `<optgroup label="Faz / corrige (edita arquivos)">${all.filter(([k]) => EDIT_ROLES.has(k)).map(opt).join('')}</optgroup>
+    <optgroup label="Só analisa (não edita)">${all.filter(([k]) => !EDIT_ROLES.has(k)).map(opt).join('')}</optgroup>`;
+}
 
 function stepCard(s, i, n, last) {
   const color = WORKER_STYLE[s.worker].color;
@@ -426,8 +439,8 @@ function stepCard(s, i, n, last) {
       <select data-s="worker" aria-label="Trabalhador">
         ${Object.keys(WORKER_STYLE).map((w) => `<option value="${w}" ${w === s.worker ? 'selected' : ''}>${wname(w)}</option>`).join('')}
       </select>
-      <select data-s="role" aria-label="Papel">
-        ${Object.entries(S.data.roles).map(([k, r]) => `<option value="${k}" ${k === s.role ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}
+      <select data-s="role" aria-label="Papel" title="${EDIT_ROLES.has(s.role) ? 'Edita arquivos' : 'Só analisa, não edita arquivos'}">
+        ${roleOptions(s.role)}
       </select>
       <span class="tools">
         <button class="btn ghost small" data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Subir etapa">↑</button>

@@ -213,3 +213,22 @@ test('auditoria sem etapa de execução: "Corrigir com" cria a correção e o au
   assert.deepEqual(last.map((a) => `${a.worker}:${a.role}`), ['codex:executar', `${line.steps[pend.step].worker}:${line.steps[pend.step].role}`]);
   assert.equal(line.run.outcome, 'mudancas_pendentes');
 });
+
+test('revisar e corrigir: recebe o diff, edita arquivos e lista o que corrigiu', async () => {
+  const seen = [];
+  const sim = createSimulatedRunner({ stepMs: 1 });
+  const simulated = (args) => {
+    seen.push(args);
+    return sim(args);
+  };
+  const { orch, line } = setup({ runners: { simulated }, template: 'claude-faz-codex-revisa-corrige' });
+  await orch.start('l1');
+  assert.deepEqual(line.run.attempts.map((a) => `${a.worker}:${a.role}:${a.verdict ?? '-'}`), ['claude:executar:-', 'codex:revisar_corrigir:-']);
+  assert.equal(line.run.status, 'done');
+  const p = seen[1].prompt;
+  assert.match(p, /REVISOR-CORRETOR/);
+  assert.match(p, /✔ corrigido/);
+  assert.doesNotMatch(p, /A ÚLTIMA linha deve ser exatamente `VEREDITO/);
+  assert.match(p, /Não precisa de VEREDITO/);
+  assert.match(p, /skill: revisao-codigo/);
+});

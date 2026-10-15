@@ -6,7 +6,7 @@ import { runCodex } from './adapters/codex.js';
 import { createSimulatedRunner } from './adapters/simulated.js';
 import { clip } from './adapters/common.js';
 import { ensureWorktree, getDiff, headCommit, isGitRepo } from './git.js';
-import { buildPrompt, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
+import { buildPrompt, DIFF_ROLES, EDIT_ROLES, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
 import { detectCli, startProcess, waitForUrl } from './proc.js';
 import { capture as chromeCapture } from './screenshot.js';
 import { findStaticRoot, serveStatic } from './preview.js';
@@ -298,7 +298,7 @@ export class Orchestrator extends EventEmitter {
       if (ctl.stopped) break;
       run.current = i;
       // Voltando com correções: quem corrige pode ser outra IA/modelo (loop.fixer).
-      const fixing = Boolean(feedback && line.steps[i].role === 'executar');
+      const fixing = Boolean(feedback && EDIT_ROLES.has(line.steps[i].role));
       const step = fixing ? this.fixerStep(line, line.steps[i]) : line.steps[i];
       const { attempt, stop } = await this.runAttempt(line, ctl, where, step, i, { previous, feedback: fixing ? feedback : null, fix: fixing });
       if (fixing) feedback = null;
@@ -308,7 +308,7 @@ export class Orchestrator extends EventEmitter {
 
       if (attempt.verdict === 'MUDANCAS_NECESSARIAS') {
         let back = -1;
-        for (let j = i - 1; j >= 0; j--) if (line.steps[j].role === 'executar') { back = j; break; }
+        for (let j = i - 1; j >= 0; j--) if (EDIT_ROLES.has(line.steps[j].role)) { back = j; break; }
         if (line.loop?.enabled && back >= 0 && run.round < line.loop.maxRounds) {
           run.round += 1;
           feedback = { worker: step.worker, text: attempt.findings };
@@ -341,7 +341,7 @@ export class Orchestrator extends EventEmitter {
   countVerdict(run, step, attempt) {
     if (!attempt.verdict) return;
     this.store.stats[step.worker].revisoes += 1;
-    const exec = [...run.attempts].reverse().find((a) => a.role === 'executar' && a.status === 'done');
+    const exec = [...run.attempts].reverse().find((a) => EDIT_ROLES.has(a.role) && a.status === 'done');
     if (exec && step.role === 'revisar') this.store.stats[exec.worker][attempt.verdict === 'APROVADO' ? 'aprovadas' : 'reprovadas'] += 1;
   }
 
@@ -358,7 +358,7 @@ export class Orchestrator extends EventEmitter {
     const run = line.run;
     const revIdx = pending.step;
     let back = -1;
-    for (let j = revIdx - 1; j >= 0; j--) if (line.steps[j].role === 'executar') { back = j; break; }
+    for (let j = revIdx - 1; j >= 0; j--) if (EDIT_ROLES.has(line.steps[j].role)) { back = j; break; }
     const base = back >= 0
       ? line.steps[back]
       : { worker: fixer.worker, role: 'executar', instruction: 'Aplique as correções apontadas pelo revisor, sem refazer o que já está certo.', skills: ['economia-tokens'], model: '', effort: '' };
@@ -423,7 +423,7 @@ export class Orchestrator extends EventEmitter {
     run.attempts.push(attempt);
     this.touch(line, true);
 
-    const needsDiff = where.git && (VERDICT_ROLES.has(step.role) || step.role === 'analisar') && (line.steps.slice(0, i).some((s) => s.role === 'executar') || run.attempts.some((a) => a.fix));
+    const needsDiff = where.git && DIFF_ROLES.has(step.role) && (line.steps.slice(0, i).some((s) => EDIT_ROLES.has(s.role)) || run.attempts.some((a) => a.fix));
     const diff = needsDiff ? await getDiff(where.dir, where.base, settings.diffMaxChars) : null;
     // Skills sempre ligadas para esta IA (ex.: caveman no Claude) entram em toda etapa dela.
     step = { ...step, skills: [...new Set([...(step.skills ?? []), ...(settings.workers[step.worker].alwaysSkills ?? [])])] };

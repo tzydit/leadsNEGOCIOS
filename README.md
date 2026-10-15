@@ -47,6 +47,7 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 2. Clique em **+ Nova linha** e, dentro dela, em **Aplicar modelo…**:
    - Claude faz → Codex revisa
    - Codex faz → Claude revisa
+   - Claude faz → Codex revisa e corrige
    - Claude planeja → Codex faz → Claude revisa
    - Auditoria de segurança cruzada
    - Análise fria do projeto
@@ -62,6 +63,11 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 | Auditar segurança | procura vulnerabilidades exploráveis e dá veredito | somente leitura |
 | Planejar | escreve um plano para a próxima IA | somente leitura |
 | Análise fria | diagnóstico do projeto inteiro | somente leitura |
+| Revisar e corrigir | revisa o diff da etapa anterior e **já corrige** o que achou | como Executar |
+| Auditar e corrigir | procura vulnerabilidades e **já corrige** as de severidade alta/média | como Executar |
+| Analisar e corrigir | diagnóstico do projeto e **já aplica** as melhorias principais | como Executar |
+
+Nos papéis "e corrigir", a resposta lista cada achado como `✔ corrigido` ou `✖ não corrigido (motivo)`. Combine como quiser em cada etapa, com qualquer IA e modelo (ex.: *Claude executa → Codex revisa e corrige → Claude revisa*).
 
 ## Ver o resultado no navegador
 
