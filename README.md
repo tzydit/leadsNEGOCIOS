@@ -39,7 +39,7 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 
 ## Usando
 
-1. Em ⚙ **Configurações**, defina a **pasta padrão do projeto** (ou uma pasta por linha).
+1. Em ⚙ **Configurações**, defina a **pasta padrão do projeto** (ou uma pasta por linha) com o botão **📁 Escolher**: navegue pelas suas pastas (repositórios git aparecem marcados) ou abra a janela de pastas do próprio Windows/macOS/Linux.
 2. Escolha um modelo e clique em **+ Nova linha**, ou clique na sala vazia do escritório:
    - Claude faz → Codex revisa
    - Codex faz → Claude revisa

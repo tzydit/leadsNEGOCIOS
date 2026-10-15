@@ -320,7 +320,10 @@ function stepsHtml(line) {
     <div class="grid">
       <div class="field full">
         <label for="fWorkdir">Pasta do projeto</label>
-        <input id="fWorkdir" type="text" data-f="workdir" value="${esc(d.workdir)}" placeholder="${esc(S.data.settings.defaultWorkdir || '/caminho/do/projeto')}">
+        <div class="with-btn">
+          <input id="fWorkdir" type="text" data-f="workdir" value="${esc(d.workdir)}" placeholder="${esc(S.data.settings.defaultWorkdir || 'escolha a pasta do projeto')}">
+          <button class="btn small" type="button" data-act="pick-workdir">📁 Escolher</button>
+        </div>
       </div>
       <label class="check"><input type="checkbox" data-f="useWorktree" ${d.useWorktree ? 'checked' : ''}> Worktree isolado (git)</label>
       <div class="field">
@@ -583,7 +586,7 @@ function settingsHtml() {
   return `<form id="settingsForm">
     <h3>Projeto</h3>
     <div class="grid">
-      <div class="field full"><label>Pasta padrão do projeto</label><input type="text" name="defaultWorkdir" value="${esc(s.defaultWorkdir)}" placeholder="/home/voce/projetos/meu-site"></div>
+      <div class="field full"><label>Pasta padrão do projeto</label><div class="with-btn"><input type="text" name="defaultWorkdir" value="${esc(s.defaultWorkdir)}" placeholder="escolha a pasta do projeto"><button class="btn small" type="button" data-act="pick-default">📁 Escolher</button></div></div>
       <div class="field full"><label>Chrome para capturas (vazio = Google Chrome instalado, depois Edge)</label><input type="text" name="chromePath" value="${esc(s.chromePath ?? '')}" placeholder="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"></div>
       <div class="field"><label>Máx. caracteres de diff para o revisor</label><input type="number" min="1000" step="1000" name="diffMaxChars" value="${s.diffMaxChars}"></div>
       <div class="field"><label>Máx. caracteres do resumo repassado</label><input type="number" min="200" step="100" name="handoffMaxChars" value="${s.handoffMaxChars}"></div>
@@ -757,6 +760,13 @@ function wirePanel() {
       await api('DELETE', `/api/lines/${id}`);
       S.selected = null;
       S.drafts.delete(id);
+    } else if (act === 'pick-workdir') {
+      const line = getLine(id);
+      const picked = await pickFolder(draft(id).workdir || S.data.settings.defaultWorkdir);
+      if (!picked) return;
+      mutate(id, (d) => (d.workdir = picked));
+      renderPanel();
+      if (!line.run) toast(`Pasta da linha: ${picked}`);
     } else if (act === 'capture-now') {
       await flushSave(id);
       btn.disabled = true;
@@ -809,6 +819,10 @@ function wireModal() {
       if (!confirm('Zerar os números do comparativo?')) return;
       await api('POST', '/api/stats/reset');
       $('#modalBody').innerHTML = compareHtml();
+    } else if (act === 'pick-default') {
+      const input = $('input[name="defaultWorkdir"]');
+      const picked = await pickFolder(input.value);
+      if (picked) input.value = picked;
     } else if (act === 'add-price') {
       const tbody = $('#pricingRows');
       tbody.insertAdjacentHTML('beforeend', pricingRow(Date.now(), '', {}));
@@ -981,6 +995,88 @@ function askCustomModel(sel) {
 function pricingRow(i, name, p) {
   const cell = (f) => `<td><input type="number" min="0" step="any" name="price.${i}.${f}" value="${p[f] ?? 0}" aria-label="${f}"></td>`;
   return `<tr><td><input type="text" name="price.${i}.name" value="${esc(name)}" placeholder="nome-do-modelo" aria-label="modelo"></td>${['input', 'cacheRead', 'cacheWrite', 'output'].map(cell).join('')}<td><button class="btn ghost small" type="button" data-act="del-price" aria-label="Remover">✕</button></td></tr>`;
+}
+
+// ---- escolher pasta -------------------------------------------------------
+
+const PICK = { resolve: null, path: '', data: null };
+
+/** Abre o navegador de pastas; devolve o caminho escolhido (ou null). */
+function pickFolder(start) {
+  const dlg = $('#picker');
+  return new Promise((resolve) => {
+    PICK.resolve = resolve;
+    dlg.showModal();
+    loadFolder(start || '');
+  });
+}
+
+function closePicker(value) {
+  const r = PICK.resolve;
+  PICK.resolve = null;
+  $('#picker').close();
+  r?.(value ?? null);
+}
+
+async function loadFolder(p) {
+  const list = $('#pickList');
+  list.innerHTML = '<div class="empty">Carregando…</div>';
+  try {
+    const data = await api('GET', `/api/fs/list${p ? `?path=${encodeURIComponent(p)}` : ''}`);
+    PICK.data = data;
+    PICK.path = data.path;
+    $('#pickPath').value = data.path;
+    $('#pickRoots').innerHTML = data.roots.map((r) => `<button class="btn small ghost" data-path="${esc(r.path)}">${r.label === 'Início' ? '🏠 Início' : `💽 ${esc(r.label)}`}</button>`).join('');
+    list.innerHTML = data.folders.length
+      ? data.folders
+          .map((f) => `<button class="pick-item" role="option" data-path="${esc(f.path)}" title="${esc(f.path)}"><span>📁</span><span class="pick-name">${esc(f.name)}</span>${f.git ? '<span class="git-badge">git</span>' : ''}</button>`)
+          .join('')
+      : '<div class="empty">Sem subpastas aqui.</div>';
+    $('#pickInfo').innerHTML = data.git
+      ? '<span class="ok-text">✔ Repositório git</span> — cada linha trabalha numa cópia isolada (worktree).'
+      : 'Esta pasta <b>não é um repositório git</b>: as IAs trabalham direto nela, sem diff nem worktree.';
+    $('[data-pick="up"]').disabled = !data.parent;
+  } catch (e) {
+    list.innerHTML = `<div class="notice err">${esc(e.message)}</div>`;
+  }
+}
+
+function wirePicker() {
+  const dlg = $('#picker');
+  dlg.addEventListener('cancel', (e) => {
+    e.preventDefault();
+    closePicker(null);
+  });
+  dlg.addEventListener('click', safe(async (e) => {
+    if (e.target === dlg) return closePicker(null);
+    const item = e.target.closest('[data-path]');
+    if (item) return loadFolder(item.dataset.path);
+    const act = e.target.closest('[data-pick]')?.dataset.pick;
+    if (act === 'close') closePicker(null);
+    else if (act === 'up' && PICK.data?.parent) loadFolder(PICK.data.parent);
+    else if (act === 'use') closePicker(PICK.path);
+    else if (act === 'native') {
+      const btn = e.target.closest('[data-pick]');
+      btn.disabled = true;
+      btn.textContent = '🖥️ Escolha na janela que abriu…';
+      try {
+        const r = await api('POST', '/api/fs/pick', { start: PICK.path });
+        if (r.path) closePicker(r.path);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🖥️ Abrir janela do sistema';
+      }
+    }
+  }));
+  // duplo clique numa pasta = entrar e já usar
+  dlg.addEventListener('dblclick', (e) => {
+    const item = e.target.closest('.pick-item');
+    if (item) closePicker(item.dataset.path);
+  });
+  $('#pickPathForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    loadFolder($('#pickPath').value.trim());
+  });
 }
 
 const createLine = safe(async () => {
@@ -1250,6 +1346,7 @@ drawBrand();
 updateInsets();
 wirePanel();
 wireModal();
+wirePicker();
 office.start();
 api('GET', '/api/state').then((state) => handle({ type: 'state', state })).catch((e) => toast(e.message, true));
 connect();

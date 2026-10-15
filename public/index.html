@@ -83,6 +83,29 @@
     <div id="modalBody" class="modal-body"></div>
   </dialog>
 
+  <dialog id="picker" class="modal picker">
+    <div class="modal-head">
+      <h2>Escolher pasta do projeto</h2>
+      <button class="icon-btn" data-pick="close" aria-label="Fechar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="pick-top">
+        <div class="pick-roots" id="pickRoots"></div>
+        <button class="btn small" data-pick="native" title="Abre a janela de pastas do Windows (ou do seu sistema)">🖥️ Abrir janela do sistema</button>
+      </div>
+      <form class="pick-path" id="pickPathForm">
+        <button class="icon-btn small" type="button" data-pick="up" aria-label="Pasta de cima" title="Pasta de cima"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>
+        <input type="text" id="pickPath" aria-label="Caminho" spellcheck="false">
+        <button class="btn small" type="submit">Ir</button>
+      </form>
+      <div class="pick-list" id="pickList" role="listbox" aria-label="Pastas"></div>
+    </div>
+    <div class="pick-foot">
+      <span id="pickInfo"></span>
+      <button class="btn primary" data-pick="use">Usar esta pasta</button>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast" role="status"></div>
 
   <script type="module" src="js/app.js"></script>

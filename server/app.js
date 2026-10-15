@@ -1,5 +1,6 @@
 import express from 'express';
 import { checkUrl } from './screenshot.js';
+import { listFolders, pickFolderNative } from './folders.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
@@ -152,6 +153,16 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     const { getDiff, isGitRepo } = await import('./git.js');
     if (!(await isGitRepo(dir))) return res.json({ empty: true, message: 'A pasta não é um repositório git.' });
     res.json({ ...(await getDiff(dir, line.run.base, 200000)), branch: line.run.branch, dir });
+  }));
+
+  // ---- escolher pasta (só nomes de pastas, nunca conteúdo de arquivos) ----
+  app.get('/api/fs/list', wrap(async (req, res) => {
+    const dir = typeof req.query.path === 'string' && req.query.path ? req.query.path : store.settings.defaultWorkdir || null;
+    res.json(listFolders(dir));
+  }));
+
+  app.post('/api/fs/pick', wrap(async (req, res) => {
+    res.json(await pickFolderNative(typeof req.body?.start === 'string' ? req.body.start : ''));
   }));
 
   // ---- capturas de tela ----
