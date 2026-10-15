@@ -48,6 +48,27 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 | Planejar | escreve um plano para a próxima IA | somente leitura |
 | Análise fria | diagnóstico do projeto inteiro | somente leitura |
 
+## Custos em tempo real
+
+No topo do escritório: **agora** (o que as etapas em andamento já gastaram, subindo ao vivo), **hoje** e o gasto real das contas, se configurado. Cada sala mostra quanto a linha custou. Clique no painel de custos para ver o detalhe por dia.
+
+- **Claude**: durante a etapa o valor é estimado pela tabela de preços; ao terminar, vale o custo exato informado pelo Claude Code.
+- **Codex**: o CLI não informa preço, então vale a estimativa pela tabela de preços (aparece com `≈`).
+- A tabela de preços (US$ por 1 milhão de tokens) fica em ⚙ Configurações. **Confira os valores**: os preços mudam e os do Codex dependem do modelo que você usa.
+- Com assinatura (Claude Pro/Max, ChatGPT Plus/Pro), o valor mostrado é o **equivalente em API**; a cobrança real é a mensalidade.
+- Etapas em modo simulado não entram nos totais.
+
+### Gasto real das contas (opcional)
+
+Se você usa as APIs pagas por uso numa **organização**, o AI Office lê o gasto real do mês e do dia nas APIs de custo da Anthropic e da OpenAI. Crie chaves de **administrador**, copie `.env.example` para `.env` e preencha:
+
+```
+ANTHROPIC_ADMIN_KEY=sk-ant-admin01-...   # Claude Console → Settings → Admin keys
+OPENAI_ADMIN_KEY=sk-admin-...            # OpenAI Platform → Organization → Admin keys
+```
+
+Reinicie com `npm start`. As chaves ficam só no servidor local: não vão para o navegador nem para os processos do Claude e do Codex. Os dados chegam com alguns minutos de atraso, são atualizados a cada 5 minutos (configurável) e incluem **tudo** o que a organização gastou, não só o AI Office. Contas individuais e assinaturas não têm chave de administrador.
+
 ## Skills
 
 Ficam em [`skills/`](skills/) no formato padrão `SKILL.md`, o mesmo usado pelo Claude Code e pelo Codex:
