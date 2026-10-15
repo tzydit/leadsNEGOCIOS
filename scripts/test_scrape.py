@@ -234,6 +234,34 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([r[0] for r in rows[1:]],
                          ["Empresa A", "Empresa B", "Empresa C", "Empresa D", "Empresa E"])
 
+    def test_existing_job(self):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), MockEngine)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        out = os.path.join(tempfile.mkdtemp(), "leads.csv")
+        created = MockEngine.created
+        argv = ["scrape.py", "--job", "job-2", "--no-deep-emails", "--out", out]
+        try:
+            with mock.patch.object(scrape, "BASE", f"http://127.0.0.1:{srv.server_port}"), \
+                 mock.patch.object(scrape, "geocode") as geo, \
+                 mock.patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()):
+                scrape.main()
+        finally:
+            srv.shutdown(); srv.server_close()
+        self.assertEqual(MockEngine.created, created)  # nenhuma busca nova
+        geo.assert_not_called()
+        with open(out, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual([r["title"] for r in rows], ["Empresa C", "Empresa D"])
+        self.assertEqual(rows[0]["emails"], "c@empresa.com.br")
+
+    def test_existing_job_not_found(self):
+        argv = ["scrape.py", "--job", "nao-existe"]
+        with mock.patch.object(scrape, "BASE", "http://127.0.0.1:9"), \
+             mock.patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                scrape.main()
+        self.assertIn("Não foi possível baixar o job nao-existe", str(cm.exception.code))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

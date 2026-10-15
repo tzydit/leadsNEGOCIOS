@@ -31,6 +31,7 @@ No Windows, use os mesmos comandos com `py` ou `python`.
 | `--socials` | Adiciona Instagram, Facebook, LinkedIn e WhatsApp a partir de cada site. Mais lento. Zero tokens de IA. |
 | `--keyword` | Termo extra no mesmo job. Pode repetir. |
 | `--keywords-file` | Lê um termo por linha de um arquivo. Um job, um CSV. |
+| `--job ID` | Não busca de novo: baixa um job que já terminou e só limpa, completa e-mails e redes sociais. Útil se a janela fechou no meio. |
 
 Variáveis de ambiente (ou `.env`): `SCRAPER_PORT`, `SCRAPER_BASE_URL`, `SCRAPER_API_KEY`. O
 `scrape.sh` também aceita `SCRAPER_LANG` (padrão `pt`).

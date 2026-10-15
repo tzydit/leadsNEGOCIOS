@@ -155,8 +155,13 @@ def run_job(body):
     else:
         raise RuntimeError("\n✗ Tempo esgotado.")
 
+    return job_id, download_job(job_id)
+
+
+def download_job(job_id):
+    """Baixa o CSV de um job terminado -> linhas brutas."""
     _, raw = req("GET", f"/api/v1/jobs/{job_id}/download")
-    return job_id, list(csv.DictReader(io.StringIO(raw.decode("utf-8", "replace"))))
+    return list(csv.DictReader(io.StringIO(raw.decode("utf-8", "replace"))))
 
 
 def collect_keywords(a):
@@ -322,38 +327,8 @@ def enrich_emails(results, workers=8):
     print()
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Extrai empresas do Google Maps como leads.")
-    ap.add_argument("keyword", nargs="?", help='ex.: "dentistas em São Paulo SP"')
-    ap.add_argument("lat", nargs="?", help="latitude (opcional se usar --city)")
-    ap.add_argument("lon", nargs="?", help="longitude (opcional se usar --city)")
-    ap.add_argument("--keyword", dest="also", action="append", help="termo extra (pode repetir)")
-    ap.add_argument("--keywords-file", help="arquivo com um termo por linha (lote)")
-    ap.add_argument("--city", help="cidade/lugar para geocodificar lat/lon automaticamente")
-    ap.add_argument("--depth", type=int, default=5)
-    ap.add_argument("--lang", default="pt",
-                    help="idioma de 2 letras dos resultados do Google Maps (padrão: pt; ex.: en, es)")
-    # E-mails LIGADOS por padrão (são o campo de lead mais valioso). O motor visita o site de cada
-    # empresa para achar um endereço — um pouco mais lento. Use --no-email para uma execução rápida.
-    ap.add_argument("--email", dest="email", action="store_true", default=True, help=argparse.SUPPRESS)
-    ap.add_argument("--no-email", dest="email", action="store_false",
-                    help="pula a extração de e-mails para rodar mais rápido (ligada por padrão)")
-    ap.add_argument("--no-deep-emails", dest="deep_emails", action="store_false",
-                    help="pula a segunda passada de e-mails em páginas de contato/sobre (ligada com e-mails)")
-    ap.add_argument("--grid", type=int, metavar="N",
-                    help="divide a área de --city em N x N blocos do mapa, um job cada, sem duplicatas "
-                         "(passa do limite de ~120 por busca do Google; máx. 10)")
-    ap.add_argument("--max-time", type=int, default=600, help="limite de tempo do job em SEGUNDOS")
-    ap.add_argument("--out", default=None, help="arquivo de saída (padrão: results-<id>.csv). "
-                    "A extensão define o formato: .csv (padrão) ou .json")
-    ap.add_argument("--json", action="store_true", help="grava JSON em vez do CSV padrão")
-    ap.add_argument("--full", action="store_true", help="mantém TODAS as colunas brutas (padrão: campos de lead)")
-    ap.add_argument("--fields", help="colunas separadas por vírgula (substitui os campos de lead padrão)")
-    ap.add_argument("--socials", action="store_true",
-                    help="também busca Instagram/Facebook/LinkedIn/WhatsApp no site de cada empresa "
-                         "(0 tokens de IA; mais lento)")
-    a = ap.parse_args()
-
+def scrape_rows(a):
+    """Roda a busca pedida em `a` (um job ou um grid) -> (job_id, linhas brutas)."""
     keywords = collect_keywords(a)
     if not keywords:
         sys.exit("✗ Nenhum termo. Passe um termo, --keyword ou --keywords-file.")
@@ -434,6 +409,55 @@ def main():
         kept = [r for r in rows if in_bbox(r, bbox)]
         print(f"  descartadas {len(rows) - len(kept)} linhas fora do retângulo da cidade")
         rows = kept
+    return job_id, rows
+
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Extrai empresas do Google Maps como leads.")
+    ap.add_argument("keyword", nargs="?", help='ex.: "dentistas em São Paulo SP"')
+    ap.add_argument("lat", nargs="?", help="latitude (opcional se usar --city)")
+    ap.add_argument("lon", nargs="?", help="longitude (opcional se usar --city)")
+    ap.add_argument("--keyword", dest="also", action="append", help="termo extra (pode repetir)")
+    ap.add_argument("--keywords-file", help="arquivo com um termo por linha (lote)")
+    ap.add_argument("--city", help="cidade/lugar para geocodificar lat/lon automaticamente")
+    ap.add_argument("--depth", type=int, default=5)
+    ap.add_argument("--lang", default="pt",
+                    help="idioma de 2 letras dos resultados do Google Maps (padrão: pt; ex.: en, es)")
+    # E-mails LIGADOS por padrão (são o campo de lead mais valioso). O motor visita o site de cada
+    # empresa para achar um endereço — um pouco mais lento. Use --no-email para uma execução rápida.
+    ap.add_argument("--email", dest="email", action="store_true", default=True, help=argparse.SUPPRESS)
+    ap.add_argument("--no-email", dest="email", action="store_false",
+                    help="pula a extração de e-mails para rodar mais rápido (ligada por padrão)")
+    ap.add_argument("--no-deep-emails", dest="deep_emails", action="store_false",
+                    help="pula a segunda passada de e-mails em páginas de contato/sobre (ligada com e-mails)")
+    ap.add_argument("--grid", type=int, metavar="N",
+                    help="divide a área de --city em N x N blocos do mapa, um job cada, sem duplicatas "
+                         "(passa do limite de ~120 por busca do Google; máx. 10)")
+    ap.add_argument("--max-time", type=int, default=600, help="limite de tempo do job em SEGUNDOS")
+    ap.add_argument("--out", default=None, help="arquivo de saída (padrão: results-<id>.csv). "
+                    "A extensão define o formato: .csv (padrão) ou .json")
+    ap.add_argument("--json", action="store_true", help="grava JSON em vez do CSV padrão")
+    ap.add_argument("--full", action="store_true", help="mantém TODAS as colunas brutas (padrão: campos de lead)")
+    ap.add_argument("--fields", help="colunas separadas por vírgula (substitui os campos de lead padrão)")
+    ap.add_argument("--job", metavar="ID",
+                    help="não busca de novo: baixa um job que já terminou no motor e só limpa, "
+                         "completa e-mails e redes sociais (útil se a janela foi fechada)")
+    ap.add_argument("--socials", action="store_true",
+                    help="também busca Instagram/Facebook/LinkedIn/WhatsApp no site de cada empresa "
+                         "(0 tokens de IA; mais lento)")
+    a = ap.parse_args()
+
+    if a.job:
+        # Reaproveita um job que já terminou: não faz nova busca no Google.
+        print(f"▶ Baixando o job {a.job}…")
+        try:
+            job_id, rows = a.job, download_job(a.job)
+        except Exception as e:
+            sys.exit(f"✗ Não foi possível baixar o job {a.job} de {BASE}: {e}\n"
+                     "  Confira o id e se o Status dele é \"ok\" com: curl " + BASE + "/api/v1/jobs")
+    else:
+        job_id, rows = scrape_rows(a)
     if a.full:
         fields = list(rows[0].keys()) if rows else LEAD
     elif a.fields:
