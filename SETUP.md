@@ -52,7 +52,7 @@ Na primeira vez, ele baixa a imagem `gosom/google-maps-scraper` (algumas centena
 
 ```bash
 docker ps | grep gmaps-scraper          # deve aparecer "Up"
-curl http://localhost:8080/api/v1/jobs  # deve mostrar [] (lista vazia) ou jobs existentes
+curl http://localhost:8080/api/v1/jobs  # deve mostrar null ou [] (nenhum job ainda) ou os jobs existentes
 ```
 
 O motor também tem interface web e documentação da API no navegador:

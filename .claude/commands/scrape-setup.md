@@ -5,7 +5,7 @@ Configure o motor do projeto neste computador:
 
 1. Confirme que o Docker está instalado e rodando: `docker ps`. Se der erro, diga ao usuário para instalar ou abrir o **Docker Desktop** (link no `SETUP.md` §0) e pare aqui.
 2. Na raiz do projeto, suba o motor: `docker compose up -d`.
-3. Espere ~10s e confirme: `curl http://localhost:8080/api/v1/jobs` deve devolver um array JSON (geralmente `[]`).
+3. Espere ~10s e confirme: `curl http://localhost:8080/api/v1/jobs` deve devolver JSON: `null` ou `[]` quando ainda não há jobs, senão a lista de jobs.
 4. Informe o sucesso. Diga que agora dá para rodar `/scrape <negócio> em <cidade>`, ou pedir em linguagem natural (ex.: "busque academias em Curitiba").
 5. **Mostre este aviso uma vez, quando a configuração der certo:**
    > **Antes de buscar:** o motor faz requisições reais ao Google Maps. Uso leve não tem problema. Jobs
