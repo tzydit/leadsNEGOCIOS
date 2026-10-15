@@ -205,3 +205,19 @@ google-maps-scraper -web -addr 127.0.0.1:8080 -data-folder ./gmapsdata
 - Use proxies em jobs grandes. O motor faz o rodízio.
 - Nunca faça commit dos resultados. Eles já estão no `.gitignore`.
 - Depois de mexer no `scripts/scrape.py`, rode `python3 scripts/test_scrape.py`.
+
+---
+
+## 8. Teste sem Python (Windows ou qualquer sistema)
+
+`examples/job.example.json` é um job pequeno e rápido (padarias em Curitiba, depth 1, sem e-mails).
+Funciona no Prompt de Comando do Windows, no PowerShell (`curl.exe`) e no terminal:
+
+```
+curl -X POST http://localhost:8080/api/v1/jobs -H "Content-Type: application/json" -d @examples/job.example.json
+curl http://localhost:8080/api/v1/jobs/<id>
+curl -o teste.csv http://localhost:8080/api/v1/jobs/<id>/download
+```
+
+O primeiro comando devolve `{"id":"..."}`. Repita o segundo até `"Status":"ok"` e então baixe o CSV.
+Se vier `failed` ou um CSV vazio, veja os logs do motor com `docker logs gmaps-scraper --tail 100`.

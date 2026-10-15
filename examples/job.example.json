@@ -1,0 +1,13 @@
+{
+  "name": "teste curitiba",
+  "keywords": ["padarias em Curitiba PR"],
+  "lang": "pt",
+  "zoom": 15,
+  "lat": "-25.4284",
+  "lon": "-49.2733",
+  "fast_mode": false,
+  "radius": 10000,
+  "depth": 1,
+  "email": false,
+  "max_time": 300
+}
