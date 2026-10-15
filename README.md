@@ -112,6 +112,16 @@ No topo do escritório: **agora** (o que as etapas em andamento já gastaram, su
 - Com assinatura (Claude Pro/Max, ChatGPT Plus/Pro), o valor mostrado é o **equivalente em API**; a cobrança real é a mensalidade.
 - Etapas em modo simulado não entram nos totais.
 
+### Limites do plano (5h e semana)
+
+Com assinatura (Claude Pro/Max, ChatGPT Plus/Pro), o cartão de cada IA no topo mostra quanto já foi usado da **sessão de 5 horas** e da **semana** (ex.: `5h 44% · sem 48%`; amarelo a partir de 70%, vermelho a partir de 90%). Clique nos custos para ver as barras, a hora em que cada limite reinicia e, no Codex, os reinícios disponíveis.
+
+Os números vêm dos próprios CLIs, com a conta que já está logada neles, sem chamar o modelo (não gasta tokens):
+- **Claude Code**: pedido `get_usage` do modo `stream-json` (versões recentes do Claude Code; nas antigas, os números chegam durante as etapas);
+- **Codex**: `codex app-server`, método `account/rateLimits/read`.
+
+O AI Office não lê nem guarda tokens de login. Atualiza a cada 5 minutos, depois de cada linha e no botão *Atualizar limites agora*.
+
 ### Gasto real das contas (opcional)
 
 Se você usa as APIs pagas por uso numa **organização**, o AI Office lê o gasto real do mês e do dia nas APIs de custo da Anthropic e da OpenAI. Crie chaves de **administrador**, copie `.env.example` para `.env` e preencha:

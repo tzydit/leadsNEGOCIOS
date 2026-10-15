@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createApp, PUBLIC_DIR } from './app.js';
 import { Billing } from './billing.js';
+import { Limits } from './limits.js';
 import { Orchestrator } from './orchestrator.js';
 import { loadSkills, readCatalog } from './prompts.js';
 import { Store } from './store.js';
@@ -20,7 +21,12 @@ const orchestrator = new Orchestrator({ store, skills, skillsDir: SKILLS_DIR, wo
 const workers = await orchestrator.detect();
 const billing = new Billing();
 billing.start(store.settings.billingPollSeconds);
-const { app, attach } = createApp({ store, orchestrator, skills, billing, skillsFora: readCatalog(SKILLS_DIR).fora ?? [], publicDir: PUBLIC_DIR });
+// Limites do plano (5h / semana): perguntados aos próprios CLIs, sem gastar tokens.
+const limits = new Limits({ store, isReal: (w) => orchestrator.modeOf(w) === 'real' });
+limits.start(300);
+orchestrator.on('ratelimit', (w, win) => limits.observe(w, win));
+orchestrator.on('stats', () => limits.refreshSoon());
+const { app, attach } = createApp({ store, orchestrator, skills, billing, limits, skillsFora: readCatalog(SKILLS_DIR).fora ?? [], publicDir: PUBLIC_DIR });
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`\n  🏢 AI Office em http://localhost:${PORT}\n`);
@@ -35,6 +41,7 @@ const server = app.listen(PORT, HOST, () => {
 attach(server);
 
 const shutdown = async () => {
+  limits.stop();
   await orchestrator.stopAll();
   store.flush();
   process.exit(0);

@@ -12,7 +12,7 @@ import { defaultStats, mergeSettings } from './store.js';
 import { hostAllowed, localOnly, originAllowed } from './security.js';
 
 /** Monta o app HTTP + WebSocket em volta de um Orchestrator. */
-export function createApp({ store, orchestrator, skills, publicDir, billing = null, skillsFora = [], extraHosts = [] }) {
+export function createApp({ store, orchestrator, skills, publicDir, billing = null, limits = null, skillsFora = [], extraHosts = [] }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(localOnly({ extraHosts }));
@@ -36,6 +36,7 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     stats: store.stats,
     costDaily: store.data.costDaily,
     billing: billing?.state ?? {},
+    limits: limits?.state ?? {},
     workers: orchestrator.workersInfo(),
     models: orchestrator.models,
     skills: skills.map(({ body, dir, ...meta }) => meta),
@@ -96,6 +97,10 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     if (patch.billingPollSeconds) billing?.start(patch.billingPollSeconds);
     broadcast({ type: 'state', state: snapshot() });
     res.json({ ok: true });
+  }));
+
+  app.post('/api/limits/refresh', wrap(async (req, res) => {
+    res.json(limits ? await limits.refresh() : {});
   }));
 
   app.post('/api/billing/refresh', wrap(async (req, res) => {
@@ -256,6 +261,7 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
   orchestrator.on('log', (msg) => broadcast({ type: 'log', ...msg }));
   orchestrator.on('stats', (stats) => broadcast({ type: 'stats', stats, costDaily: store.data.costDaily }));
   billing?.on('update', (state) => broadcast({ type: 'billing', billing: state }));
+  limits?.on('update', (state) => broadcast({ type: 'limits', limits: state }));
 
   const attach = (server) => {
     server.on('upgrade', (req, socket, head) => {

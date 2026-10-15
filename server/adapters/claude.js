@@ -1,5 +1,6 @@
 import { runJsonl, splitArgs } from '../proc.js';
 import { READ_ONLY_ROLES, base, clip, emptyUsage } from './common.js';
+import { parseClaudeRateEvent } from '../limits.js';
 
 // Comandos de leitura e checagem que as IAs usam o tempo todo. Sem eles, o
 // Claude em modo não interativo pede permissão e a etapa trava ("Ferramenta
@@ -101,6 +102,10 @@ export function parseClaudeEvent(obj, st) {
         else events.push({ kind: 'error', text: `Ferramenta falhou: ${clip(t, 160)}` });
       }
     }
+  } else if (obj.type === 'rate_limit_event') {
+    // limite do plano (5h / semana) — vai para o topo, não para o log
+    const win = parseClaudeRateEvent(obj.rate_limit_info);
+    if (win) events.push({ kind: 'ratelimit', win });
   } else if (obj.type === 'result') {
     st.finished = true;
     if (obj.usage) {

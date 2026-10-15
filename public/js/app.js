@@ -114,6 +114,10 @@ function handle(msg) {
     S.data.stats = msg.stats;
     if (msg.costDaily) S.data.costDaily = msg.costDaily;
     renderWorkers();
+  } else if (msg.type === 'limits') {
+    S.data.limits = msg.limits;
+    renderWorkers();
+    if ($('#modal').open && $('#modalTitle').textContent === 'Custos') $('#modalBody').innerHTML = costsHtml();
   } else if (msg.type === 'billing') {
     S.data.billing = msg.billing;
     renderCosts();
@@ -188,8 +192,12 @@ function renderWorkers() {
     mode.textContent = info.mode;
     mode.title = info.mode === 'simulado' ? 'CLI não encontrado ou modo simulado: nada é executado de verdade' : 'Executando o CLI de verdade';
     const meta = chip.querySelector('.wmeta');
-    meta.title = busy ? `trabalhando em ${busy} linha(s)` : 'na copa';
-    meta.textContent = `${busy ? `▶ ${busy} linha${busy > 1 ? 's' : ''}` : 'na copa'} · ${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}`;
+    const usage = `${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}`;
+    const where = busy ? `▶ ${busy} linha${busy > 1 ? 's' : ''}` : 'na copa';
+    const lim = limitsChipHtml(w);
+    meta.title = `${busy ? `trabalhando em ${busy} linha(s)` : 'na copa'} · ${usage}${lim ? ' — limites do plano: clique nos custos para detalhes' : ''}`;
+    if (lim) meta.innerHTML = `${busy ? `${where} · ` : ''}${lim}`;
+    else meta.textContent = `${where} · ${usage}`;
     // Recria as opções só quando mudam e o usuário não está mexendo nelas.
     const cfg = S.data.settings.workers[w];
     const ms = chip.querySelector('[data-chip-model]');
@@ -941,6 +949,13 @@ function wireModal() {
       tbody.lastElementChild.querySelector('input').focus();
     } else if (act === 'del-price') {
       e.target.closest('tr').remove();
+    } else if (act === 'limits-refresh') {
+      const b = e.target.closest('[data-act]');
+      b.disabled = true;
+      b.textContent = 'Consultando…';
+      S.data.limits = await api('POST', '/api/limits/refresh');
+      $('#modalBody').innerHTML = costsHtml();
+      renderWorkers();
     } else if (act === 'billing-refresh') {
       S.data.billing = await api('POST', '/api/billing/refresh');
       $('#modalBody').innerHTML = costsHtml();
@@ -1039,6 +1054,45 @@ function renderCosts() {
   el.innerHTML = parts.join('');
 }
 
+// ---- limites do plano (5h / semana) ---------------------------------------
+
+const limLevel = (used) => (used >= 90 ? 'hot' : used >= 70 ? 'warm' : '');
+
+function resetText(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === new Date().toDateString()) return `reinicia às ${time}`;
+  return `reinicia ${d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '')}, ${time}`;
+}
+
+/** As duas janelas principais (5h e semana) em barrinhas para o cartão da IA. */
+function limitsChipHtml(w) {
+  const l = S.data.limits?.[w];
+  const wins = (l?.windows ?? []).filter((x) => ['five_hour', 'seven_day', 'primary', 'secondary'].includes(x.id));
+  if (!wins.length) return '';
+  return wins
+    .map((x) => `<span class="lim ${limLevel(x.used)}" title="${esc(`${x.label}: ${Math.round(x.used)}% usado · ${100 - Math.round(x.used)}% livre${x.resetsAt ? ` · ${resetText(x.resetsAt)}` : ''}`)}">${esc(x.short)} ${Math.round(x.used)}%</span>`)
+    .join(' · ');
+}
+
+function limitsHtml() {
+  const rows = Object.keys(WORKER_STYLE)
+    .map((w) => {
+      const l = S.data.limits?.[w] ?? {};
+      const head = `<div class="lim-head"><span class="dot" style="--wc:${WORKER_STYLE[w].color}"></span><b>${esc(wname(w))}</b>${l.plan ? `<span class="plan">${esc(String(l.plan))}</span>` : ''}${l.resets ? `<span class="plan">🔄 ${l.resets} reinícios disponíveis</span>` : ''}${l.updatedAt ? `<small>atualizado ${ago(l.updatedAt)}</small>` : ''}</div>`;
+      if (l.status === 'off') return `${head}<p class="compare-note">${esc(l.note || 'CLI não encontrado.')}</p>`;
+      if (!l.windows?.length) return `${head}<p class="compare-note">${l.error ? `⚠️ ${esc(l.error)}` : esc(l.note || 'Carregando…')}</p>`;
+      return `${head}${l.windows
+        .map((x) => `<div class="lim-row ${limLevel(x.used)}"><span>${esc(x.label)}<small>${esc(resetText(x.resetsAt))}</small></span><i><b style="width:${Math.round(x.used)}%"></b></i><em>${Math.round(x.used)}% usado</em></div>`)
+        .join('')}${l.blocked ? '<p class="compare-note">⚠️ Uso incluído no plano bloqueado agora.</p>' : ''}${l.error ? `<p class="compare-note">⚠️ última consulta falhou: ${esc(l.error)}</p>` : ''}`;
+    })
+    .join('');
+  return `<h3>📊 Limites do plano</h3>${rows}
+    <p class="compare-note">Perguntado ao próprio Claude Code e ao Codex (a conta já logada neles), sem chamar o modelo: não gasta tokens. Atualiza a cada 5 minutos e depois de cada linha.</p>
+    <button class="btn small" data-act="limits-refresh">Atualizar limites agora</button>`;
+}
+
 function costsHtml() {
   const workers = Object.keys(WORKER_STYLE);
   const now = runningAttempts();
@@ -1082,7 +1136,7 @@ function costsHtml() {
       <tr><td>Repasse enxuto (só o RESUMO)</td>${Object.keys(WORKER_STYLE).map((w) => `<td>${fmt(sv.by[w].handoff)}</td>`).join('')}<td>${fmt(sv.handoff)}</td></tr>
     </tbody><tfoot><tr><td>Total</td>${Object.keys(WORKER_STYLE).map((w) => `<td>${fmt(sv.by[w].cache + sv.by[w].handoff)}</td>`).join('')}<td>${fmt(sv.cache + sv.handoff)} tokens · ≈ ${fmtUsd(sv.usd)}</td></tr></tfoot></table>
     <p class="compare-note">Só entra o que dá para medir. 🪨 caveman ${caveOn.length ? `ligado no ${esc(caveOn.join(' e '))}` : 'desligado'}: reduz a saída, mas o quanto economiza não dá para medir sem rodar a mesma tarefa sem ele.</p>`;
-  return `${economia}<h3>Agora</h3>${nowHtml}
+  return `${limitsHtml()}${economia}<h3>Agora</h3>${nowHtml}
     <h3>Gasto das linhas do AI Office</h3>
     <table class="costs-table"><thead><tr><th>Dia</th>${workers.map((w) => `<th>${esc(wname(w))}</th>`).join('')}<th>Total</th></tr></thead>
       <tbody>${dayRows || `<tr><td colspan="${workers.length + 2}">Nenhum gasto real ainda.</td></tr>`}</tbody>

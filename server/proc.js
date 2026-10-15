@@ -1,6 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
 
-const IS_WIN = process.platform === 'win32';
+export const IS_WIN = process.platform === 'win32';
 
 /** Divide uma string de argumentos respeitando aspas simples/duplas. */
 export function splitArgs(str) {
@@ -31,7 +31,7 @@ export function splitArgs(str) {
 
 // No Windows os CLIs globais do npm são .cmd e precisam de shell; o prompt vai
 // sempre por stdin, então só flags passam pela linha de comando.
-function quoteWin(arg) {
+export function quoteWin(arg) {
   if (/^[\w./:=@,+-]+$/.test(arg)) return arg;
   return `"${arg.replace(/"/g, '""')}"`;
 }

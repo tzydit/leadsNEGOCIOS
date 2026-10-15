@@ -451,6 +451,7 @@ export class Orchestrator extends EventEmitter {
       round: run.round,
       config: cfg,
       onEvent: (ev) => {
+        if (ev.kind === 'ratelimit') return this.emit('ratelimit', step.worker, ev.win);
         if (ev.kind !== 'text') attempt.activity = clip(ev.text, 80);
         else attempt.activity = 'Escrevendo resposta…';
         this.log(line, { step: i, worker: step.worker, kind: ev.kind, text: ev.kind === 'text' ? String(ev.text).slice(0, 4000) : ev.text });
