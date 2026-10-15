@@ -1,0 +1,19 @@
+# Segredos
+.env
+
+# Saídas das buscas (podem conter dados pessoais — nunca faça commit)
+*.csv
+results-*.json
+out/
+output/
+gmaps-output/
+data/
+gmapsdata/
+
+# Python
+__pycache__/
+*.pyc
+
+# Sistema / editor
+.DS_Store
+Thumbs.db

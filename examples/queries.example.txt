@@ -1,0 +1,8 @@
+# Lista de termos em lote: cada linha vira um termo em um único job e um único CSV.
+# Um termo por linha. Linhas em branco e linhas começando com # são ignoradas.
+# Coloque a cidade em cada linha, ou passe --city para geocodificar um lugar para todos.
+# Rodar:  python3 scripts/scrape.py --keywords-file examples/queries.example.txt --city "São Paulo, SP"
+dentistas em São Paulo SP
+ortodontistas em São Paulo SP
+clínicas odontológicas em São Paulo SP
+odontopediatras em São Paulo SP

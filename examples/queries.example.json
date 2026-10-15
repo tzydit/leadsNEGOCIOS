@@ -1,0 +1,36 @@
+{
+  "_comment": "Corpo de referência para POST /api/v1/jobs. Copie o objeto 'job' e edite. Campos obrigatórios: keywords, lat e lon (strings), max_time (segundos). Este exemplo usa email false para uma execução rápida; os scripts do projeto enviam email true por padrão. Defina proxies como um array de URLs de proxy para execuções grandes ou repetidas.",
+  "job": {
+    "name": "minha busca",
+    "keywords": ["cafeterias em São Paulo SP"],
+    "lang": "pt",
+    "zoom": 15,
+    "lat": "-23.5505",
+    "lon": "-46.6333",
+    "fast_mode": false,
+    "radius": 10000,
+    "depth": 5,
+    "email": false,
+    "max_time": 300,
+    "proxies": null
+  },
+  "ideias_de_termos": [
+    "dentistas em Curitiba PR",
+    "encanadores em Campinas SP",
+    "estúdios de pilates em Florianópolis SC",
+    "barbearias no Rio de Janeiro RJ",
+    "fotógrafos de casamento em Belo Horizonte MG"
+  ],
+  "coordenadas_de_capitais": {
+    "São Paulo, SP": ["-23.5505", "-46.6333"],
+    "Rio de Janeiro, RJ": ["-22.9068", "-43.1729"],
+    "Belo Horizonte, MG": ["-19.9167", "-43.9345"],
+    "Brasília, DF": ["-15.7939", "-47.8828"],
+    "Curitiba, PR": ["-25.4284", "-49.2733"],
+    "Porto Alegre, RS": ["-30.0346", "-51.2177"],
+    "Salvador, BA": ["-12.9777", "-38.5016"],
+    "Recife, PE": ["-8.0476", "-34.8770"],
+    "Fortaleza, CE": ["-3.7319", "-38.5267"],
+    "Florianópolis, SC": ["-27.5954", "-48.5480"]
+  }
+}
