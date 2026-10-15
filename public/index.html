@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Office</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%2314161f'/%3E%3Crect x='1' y='2' width='3' height='4' fill='%23d97757'/%3E%3Crect x='4' y='2' width='3' height='4' fill='%2310a37f'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <h1>AI&nbsp;Office</h1>
+    </div>
+    <div class="workers" id="workers" aria-label="Trabalhadores"></div>
+    <div class="actions">
+      <div class="new-line">
+        <select id="tplSelect" aria-label="Modelo da nova linha"></select>
+        <button class="btn primary" id="btnNewLine">+ Nova linha</button>
+      </div>
+      <button class="btn" id="btnCompare">Comparativo</button>
+      <button class="btn icon" id="btnSettings" aria-label="Configurações" title="Configurações">⚙</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="office" aria-label="Escritório">
+      <div class="office-scroll" id="officeScroll">
+        <canvas id="office" role="img" aria-label="Escritório em pixel art com as salas de cada linha de trabalho"></canvas>
+      </div>
+      <div class="office-hint">Clique numa sala para abrir a linha · na <b>Biblioteca</b> estão as skills · a <b>Copa</b> mostra o comparativo</div>
+    </section>
+
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </main>
+
+  <dialog id="modal" class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitle"></h2>
+      <button class="btn icon" id="modalClose" aria-label="Fechar">✕</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

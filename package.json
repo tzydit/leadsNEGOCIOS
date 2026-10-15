@@ -1,0 +1,21 @@
+{
+  "name": "ai-office",
+  "version": "0.1.0",
+  "description": "Escritório em pixel art para orquestrar Claude Code e Codex trabalhando em linhas de trabalho (executar, revisar, auditar).",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test \"test/*.test.js\"",
+    "skills:install": "node scripts/install-skills.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.0"
+  }
+}
