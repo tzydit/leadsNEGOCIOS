@@ -1,96 +1,131 @@
-// Sprites em pixel art desenhados a partir de mapas de caracteres.
+// Personagens chibi em pixel art, desenhados a partir de mapas de caracteres.
 // Cada letra é uma cor da paleta do trabalhador; '.' é transparente.
+// Um contorno escuro é aplicado automaticamente em volta de cada sprite.
 
 export const WORKER_STYLE = {
   claude: {
     name: 'Claude',
-    color: '#d97757',
-    pal: { H: '#5a3a2a', h: '#7a4e38', S: '#f1c6a2', s: '#d9a582', E: '#2a1f1a', C: '#d97757', D: '#b55c3f', W: '#fff1e2', P: '#3b3f58', B: '#1d1f2b' },
+    letter: 'C',
+    color: '#e07a4f',
+    pal: { H: '#6b3f2a', h: '#8a5638', S: '#f6cfac', s: '#e3ad86', E: '#2a1f1a', W: '#ffffff', M: '#c4624a', C: '#e07a4f', D: '#b85b37', L: '#f3a27c', P: '#3c4160', B: '#24263a' },
   },
   codex: {
     name: 'Codex',
-    color: '#10a37f',
-    pal: { H: '#1b1b20', h: '#2b2b33', K: '#0d6e57', k: '#13906f', S: '#d9a882', s: '#bf8f6c', E: '#101014', G: '#e9edf2', C: '#10a37f', D: '#0b7a5e', W: '#dff7ef', P: '#2c2f3d', B: '#14151c' },
+    letter: 'X',
+    color: '#14a37f',
+    pal: { H: '#1f1d27', h: '#3a3646', S: '#e5b48f', s: '#c99472', E: '#15151c', W: '#ffffff', G: '#2b2f3d', M: '#a8644e', C: '#14a37f', D: '#0c7a5f', L: '#43c9a2', P: '#2c3247', B: '#191b26' },
   },
 };
 
-const LEGS_A = ['...PP..PP...', '...PP..PP...', '...BB..BB...'];
-const LEGS_B = ['...PP..PP...', '..PP....PP..', '..BB....BB..'];
+const OUTLINE = 'rgba(28, 24, 36, 0.92)';
 
-const FRONT = {
+// Cabeça grande (chibi). 16 colunas.
+const HEAD = {
   claude: [
-    '....hHHh....',
-    '...HHHHHH...',
-    '..HHHHHHHH..',
-    '..HSSSSSSH..',
-    '..SSESSESS..',
-    '..sSSSSSSs..',
-    '...SSSSSS...',
-    '....ssss....',
-    '..CCCWWCCC..',
-    '.CCCCCCCCCC.',
-    '.SCCCCCCCCS.',
-    '.SCCCCCCCCS.',
-    '.sDCCCCCCDs.',
-    '...DDDDDD...',
-    '...PPPPPP...',
+    '.....hHHHHh.....',
+    '...hHHHHHHHHh...',
+    '..HHHHHHHHHHHH..',
+    '..HHHHHHHHHHHH..',
+    '.HHHSSSSSSSHHHH.',
+    '.HHSSSSSSSSSSHH.',
+    '.HSSEESSSSEESSH.',
+    '..SSEESSSSEESS..',
+    '..SSSSSSSSSSSS..',
+    '..sSSSSMMSSSSs..',
+    '...SSSSSSSSSS...',
+    '....ssSSSSss....',
   ],
   codex: [
-    '....kKKk....',
-    '...KKKKKK...',
-    '..KKKKKKKK..',
-    '..HSSSSSSH..',
-    '..SGEGGEGS..',
-    '..sSSSSSSs..',
-    '...SSSSSS...',
-    '....ssss....',
-    '..DCCWWCCD..',
-    '.CCCCCCCCCC.',
-    '.SCCCCCCCCS.',
-    '.SCCCCCCCCS.',
-    '.sDCCCCCCDs.',
-    '...DDDDDD...',
-    '...PPPPPP...',
+    '.....hHHHHh.....',
+    '...hHHHHHHHHh...',
+    '..HHHHHHHHHHHH..',
+    '..HHHHHHHHHHHH..',
+    '.HHHSSSSSSSSHHH.',
+    '.HHSSSSSSSSSSHH.',
+    '.HSGGGGSSGGGGSH.',
+    '..SGEWGGGGEWGS..',
+    '..SGGGGSSGGGGS..',
+    '..sSSSSMMSSSSs..',
+    '...SSSSSSSSSS...',
+    '....ssSSSSss....',
   ],
 };
 
-const BACK_TOP = {
-  claude: ['....hHHh....', '...HHHHHH...', '..HHHHHHHH..', '..HHHHHHHH..', '..HHHHHHHH..', '..sHHHHHHs..', '...ssssss...'],
-  codex: ['....kKKk....', '...KKKKKK...', '..KKKKKKKK..', '..KKKKKKKK..', '..HHHHHHHH..', '..sHHHHHHs..', '...ssssss...'],
-};
-const BACK_BODY_A = ['..CCCCCCCC..', '.CCCCCCCCCC.', 'SCCCCCCCCCCS', 'SCCCCCCCCCCS', '.CCCCCCCCCC.', '.DDDDDDDDDD.'];
-const BACK_BODY_B = ['..CCCCCCCC..', 'SCCCCCCCCCC.', 'SCCCCCCCCCCS', '.CCCCCCCCCCS', '.CCCCCCCCCC.', '.DDDDDDDDDD.'];
+const TORSO = [
+  '.....DCCCCD.....',
+  '....CCCLLCCC....',
+  '...SCCCCCCCCS...',
+  '...SCCCCCCCCS...',
+  '...sCCDDDDCCs...',
+  '....DDDDDDDD....',
+];
 
-export const SPRITE_W = 12;
-export const FRONT_H = 18;
-export const BACK_H = 13;
+const LEGS = {
+  stand: ['....PPPPPPPP....', '....PPP..PPP....', '....PPP..PPP....', '....BBB..BBB....', '...BBBB..BBBB...'],
+  walkA: ['....PPPPPPPP....', '...PPP...PPP....', '...PPP....PPP...', '...BBB....BBB...', '..BBBB....BBBB..'],
+  walkB: ['....PPPPPPPP....', '....PPP...PPP...', '...PPP....PPP...', '...BBB....BBB...', '..BBBB....BBBB..'],
+};
+
+// Sentado atrás da mesa: só cabeça, tronco e braços apoiados (digitando).
+const SIT_ARMS = {
+  a: ['.....DCCCCD.....', '....CCCLLCCC....', '...CCCCCCCCCC...', '..SCCCCCCCCCCS..', '..SS.CCCCCC.SS..'],
+  b: ['.....DCCCCD.....', '....CCCLLCCC....', '...CCCCCCCCCC...', '..SCCCCCCCCCCS..', '.SS..CCCCCC..S..'],
+};
+
+export const SPRITE_W = 16;
+export const STAND_H = HEAD.claude.length + TORSO.length + LEGS.stand.length; // 23
+export const SIT_H = HEAD.claude.length + SIT_ARMS.a.length; // 17
 
 function paint(map, pal, scale = 1) {
+  // 1px de margem para o contorno.
+  const w = map[0].length + 2;
+  const h = map.length + 2;
+  const grid = Array.from({ length: h }, () => Array(w).fill(null));
+  map.forEach((row, y) => [...row].forEach((ch, x) => ch !== '.' && pal[ch] && (grid[y + 1][x + 1] = pal[ch])));
   const c = document.createElement('canvas');
-  c.width = map[0].length * scale;
-  c.height = map.length * scale;
+  c.width = w * scale;
+  c.height = h * scale;
   const ctx = c.getContext('2d');
-  map.forEach((row, y) => {
-    [...row].forEach((ch, x) => {
-      if (ch === '.' || !pal[ch]) return;
-      ctx.fillStyle = pal[ch];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let color = grid[y][x];
+      if (!color) {
+        const near = [grid[y - 1]?.[x], grid[y + 1]?.[x], grid[y]?.[x - 1], grid[y]?.[x + 1]].some(Boolean);
+        if (!near) continue;
+        color = OUTLINE;
+      }
+      ctx.fillStyle = color;
       ctx.fillRect(x * scale, y * scale, scale, scale);
-    });
-  });
+    }
+  }
   return c;
 }
 
 const cache = new Map();
 
-/** pose: 'walk0' | 'walk1' | 'sit0' | 'sit1' */
+/** pose: 'stand' | 'walkA' | 'walkB' | 'sitA' | 'sitB' | 'portrait'. Sprites têm 1px de contorno em volta. */
 export function sprite(worker, pose, scale = 1) {
   const key = `${worker}:${pose}:${scale}`;
   if (cache.has(key)) return cache.get(key);
   const pal = WORKER_STYLE[worker].pal;
   let map;
-  if (pose.startsWith('walk')) map = [...FRONT[worker], ...(pose === 'walk1' ? LEGS_B : LEGS_A)];
-  else map = [...BACK_TOP[worker], ...(pose === 'sit1' ? BACK_BODY_B : BACK_BODY_A)];
+  if (pose === 'portrait') map = [...HEAD[worker], TORSO[0], TORSO[1], TORSO[2]];
+  else if (pose === 'sitA' || pose === 'sitB') map = [...HEAD[worker], ...SIT_ARMS[pose === 'sitA' ? 'a' : 'b']];
+  else map = [...HEAD[worker], ...TORSO, ...LEGS[pose] ?? LEGS.stand];
   const c = paint(map, pal, scale);
   cache.set(key, c);
+  return c;
+}
+
+/** Retrato para listas: canvas pronto para inserir no DOM. */
+export function portrait(worker, scale = 2) {
+  const src = sprite(worker, 'portrait', scale);
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  c.className = 'portrait';
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(src, 0, 0);
   return c;
 }

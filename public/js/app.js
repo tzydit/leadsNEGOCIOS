@@ -1,4 +1,4 @@
-import { Office, STATUS_TEXT, lineStatus } from './office.js';
+import { Office, STATUS_TEXT, activityIcon, lineStatus } from './office.js';
 import { WORKER_STYLE, sprite } from './sprites.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -93,6 +93,8 @@ function handle(msg) {
     if (!isEditing(msg.line.id)) S.drafts.delete(msg.line.id);
     office.setData(S.data);
     renderWorkers();
+    renderOffice();
+    renderStats();
     if (S.selected === msg.line.id) renderPanel({ soft: true });
   } else if (msg.type === 'log') {
     const arr = S.logs.get(msg.lineId) ?? [];
@@ -100,6 +102,7 @@ function handle(msg) {
     if (arr.length > 400) arr.splice(0, arr.length - 400);
     S.logs.set(msg.lineId, arr);
     if (S.selected === msg.lineId && S.tab === 'vivo') appendLog(msg.entry);
+    scheduleFeed();
   } else if (msg.type === 'stats') {
     S.data.stats = msg.stats;
     if (msg.costDaily) S.data.costDaily = msg.costDaily;
@@ -160,7 +163,7 @@ function renderWorkers() {
       chip.dataset.chip = w;
       chip.style.setProperty('--wc', WORKER_STYLE[w].color);
       chip.innerHTML = `
-        <canvas width="24" height="36" aria-hidden="true"></canvas>
+        <span class="acct-badge" aria-hidden="true">${WORKER_STYLE[w].letter}</span>
         <div>
           <div class="wname">${esc(wname(w))} <span class="mode"></span></div>
           <div class="wpick">
@@ -169,9 +172,6 @@ function renderWorkers() {
           </div>
           <div class="wmeta"></div>
         </div>`;
-      const cv = chip.querySelector('canvas').getContext('2d');
-      cv.imageSmoothingEnabled = false;
-      cv.drawImage(sprite(w, 'walk0', 2), 0, 0);
       box.append(chip);
     }
     const st = S.data.stats[w];
@@ -189,8 +189,8 @@ function renderWorkers() {
     const es = chip.querySelector('[data-chip-effort]');
     const sig = JSON.stringify([cfg.model, cfg.effort, S.data.models?.[w]?.models?.length]);
     if (ms.dataset.sig !== sig && document.activeElement !== ms && document.activeElement !== es) {
-      ms.innerHTML = modelOptions(w, cfg.model, 'Padrão do CLI');
-      es.innerHTML = effortOptions(w, cfg.model, cfg.effort, 'raciocínio: padrão');
+      ms.innerHTML = modelOptions(w, cfg.model, 'Modelo padrão');
+      es.innerHTML = effortOptions(w, cfg.model, cfg.effort, 'Raciocínio');
       ms.dataset.sig = sig;
       ms.dataset.prev = cfg.model;
       ms.title = modelInfo(w, cfg.model)?.description || 'Modelo usado quando a etapa não escolhe outro';
@@ -211,14 +211,23 @@ function renderAll() {
   office.setData(S.data);
   office.setSelected(S.selected);
   renderWorkers();
+  renderStats();
+  renderOffice();
+  renderFeed();
   renderPanel();
 }
 
 function renderPanel({ soft = false } = {}) {
   const panel = $('#panel');
   const line = getLine(S.selected);
+  const open = Boolean(line);
+  if (panel.hidden === open || document.body.classList.contains('right-open') !== open) {
+    panel.hidden = !open;
+    document.body.classList.toggle('right-open', open);
+    updateInsets();
+  }
   if (!line) {
-    panel.innerHTML = welcomeHtml();
+    panel.innerHTML = '';
     return;
   }
   // Atualização vinda do servidor enquanto o usuário digita: só o cabeçalho.
@@ -261,6 +270,7 @@ function renderHead(line) {
     <div class="panel-title">
       <input id="lineName" type="text" value="${esc(d.name)}" aria-label="Nome da linha" ${running ? 'disabled' : ''}>
       <span class="status ${st === 'running' ? 'running' : st}">${label}</span>
+      <button class="icon-btn small" data-act="close" aria-label="Fechar painel" title="Fechar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
     </div>
     <div class="run-row">
       ${running
@@ -273,8 +283,8 @@ function renderHead(line) {
 
 function welcomeHtml() {
   const sim = Object.entries(S.data.workers).filter(([, i]) => i.mode === 'simulado').map(([w]) => wname(w));
-  return `<div class="panel-body welcome">
-    <h2>Bem-vindo ao escritório</h2>
+  return `<div class="onboard">
+    <h3>Bem-vindo ao escritório</h3>
     ${sim.length ? `<div class="notice">${esc(sim.join(' e '))} em <b>modo simulado</b>: o CLI não foi encontrado (ou foi forçado nas configurações). Dá para testar tudo; nada é executado de verdade.</div>` : ''}
     <ol>
       <li>Cada <b>sala</b> é uma <b>linha de trabalho</b>. Crie uma com <b>+ Nova linha</b> (escolha um modelo) ou clicando na sala vazia.</li>
@@ -643,6 +653,13 @@ function wirePanel() {
     const btn = e.target.closest('[data-act]');
     if (!btn || !id) return;
     const act = btn.dataset.act;
+    if (act === 'close') {
+      S.selected = null;
+      office.setSelected(null);
+      renderPanel();
+      renderOffice();
+      return;
+    }
     if (act === 'run') {
       await flushSave(id);
       S.tab = 'vivo';
@@ -873,22 +890,175 @@ function pricingRow(i, name, p) {
 
 const createLine = safe(async () => {
   const line = await api('POST', '/api/lines', { template: $('#tplSelect').value });
-  S.selected = line.id;
-  S.tab = 'etapas';
-  office.setSelected(line.id);
-  renderPanel();
+  selectLine(line.id, { tab: 'etapas' });
 });
+
+// ---- painéis Escritório, Atividade e barra ---------------------------------
+
+const portraitCache = {};
+const portraitURL = (w) => (portraitCache[w] ??= sprite(w, 'portrait', 3).toDataURL());
+const letter = (w) => `<span class="letter" style="--wc:${WORKER_STYLE[w].color}">${WORKER_STYLE[w].letter}</span>`;
+const UI = { search: '', hide: new Set(), feedTimer: null };
+
+function selectLine(id, { tab = null, focus = true } = {}) {
+  if (S.selected !== id) S.diff = null;
+  S.selected = id;
+  if (tab) S.tab = tab;
+  else if (isRunning(id) && S.tab === 'etapas') S.tab = 'vivo';
+  office.setSelected(id);
+  renderPanel();
+  renderOffice();
+  if (focus) requestAnimationFrame(() => office.focusLine(id));
+}
+
+/** Avisa o mapa de quanto espaço os painéis ocupam, para enquadrar o prédio no meio. */
+function updateInsets() {
+  const tb = $('#topbar');
+  document.documentElement.style.setProperty('--topbar-h', `${tb.offsetHeight}px`);
+  const vw = window.innerWidth;
+  const vis = (el) => el && !el.hidden && getComputedStyle(el).display !== 'none';
+  const left = $('#officePanel');
+  const right = $('#panel');
+  const bottom = $('#activity');
+  const narrow = vw <= 760;
+  office.setInsets({
+    left: !narrow && vis(left) ? left.getBoundingClientRect().right : 0,
+    right: !narrow && vis(right) ? vw - right.getBoundingClientRect().left : 0,
+    bottom: vis(bottom) ? window.innerHeight - bottom.getBoundingClientRect().top : 0,
+    top: 0,
+  });
+  if (!office.userMoved) office.fit();
+}
+
+function renderStats() {
+  const lines = S.data.lines;
+  const by = (f) => lines.filter(f).length;
+  const working = by((l) => l.run?.status === 'running');
+  const approved = by((l) => lineStatus(l) === 'aprovado');
+  const pending = by((l) => lineStatus(l) === 'pendente');
+  const failed = by((l) => ['failed', 'budget'].includes(lineStatus(l)));
+  const stat = (n, label, cls = '') => `<div class="stat ${n && cls ? cls : ''}"><b>${n}</b><small>${label}</small></div>`;
+  $('#stats').innerHTML = stat(lines.length, 'linhas') + stat(working, 'trabalhando', 'hot') + stat(approved, 'aprovadas') + stat(pending, 'pendentes') + stat(failed, 'com erro', 'bad');
+  $('#simBadge').hidden = !Object.values(S.data.workers).some((i) => i.mode === 'simulado');
+}
+
+/** Estado de uma etapa para a lista: ponto colorido e texto. */
+function stepState(line, i) {
+  const s = line.steps[i];
+  const last = line.run?.attempts?.filter((a) => a.step === i).at(-1);
+  if (!last) return { dot: '', text: s.instruction ? `📝 ${s.instruction}` : 'Aguardando' };
+  if (last.status === 'running') return { dot: 'running', text: `${activityIcon(last.activity)} ${last.activity || 'trabalhando…'}`, active: true };
+  if (last.status === 'failed') return { dot: 'failed', text: `⚠️ ${last.error || 'falhou'}` };
+  if (last.status === 'stopped') return { dot: 'stopped', text: '■ parada' };
+  if (last.verdict === 'MUDANCAS_NECESSARIAS') return { dot: 'changes', text: '↺ pediu mudanças' };
+  return { dot: 'done', text: last.verdict === 'APROVADO' ? '✔ aprovou' : '✔ concluída' };
+}
+
+function renderOffice() {
+  const list = $('#lineList');
+  if (!list || !S.data) return;
+  $('#filters').innerHTML = Object.keys(WORKER_STYLE)
+    .map((w) => `<button class="filter-chip" data-filter="${w}" aria-pressed="${!UI.hide.has(w)}">${letter(w)} ${esc(wname(w))}</button>`)
+    .join('');
+  const q = UI.search.trim().toLowerCase();
+  const lines = S.data.lines.filter((l) => {
+    if (l.steps.length && l.steps.every((s) => UI.hide.has(s.worker))) return false;
+    if (!q) return true;
+    return [l.name, l.workdir, ...l.steps.map((s) => `${wname(s.worker)} ${s.instruction}`)].join(' ').toLowerCase().includes(q);
+  });
+  if (!S.data.lines.length) {
+    list.innerHTML = welcomeHtml();
+    return;
+  }
+  if (!lines.length) {
+    list.innerHTML = '<div class="empty">Nada encontrado.</div>';
+    return;
+  }
+  list.innerHTML = lines
+    .map((l) => {
+      const st = lineStatus(l);
+      const color = STATUS_TEXT[st][1];
+      const states = l.steps.map((_, i) => stepState(l, i));
+      const done = states.filter((x) => x.dot === 'done').length;
+      const workers = [...new Set(l.steps.map((s) => s.worker))];
+      const rows = l.steps
+        .map(
+          (s, i) => `<div class="agent-row ${states[i].active ? 'active' : ''}">
+            <img src="${portraitURL(s.worker)}" alt="">
+            <div>
+              <div class="who">${esc(wname(s.worker))} ${letter(s.worker)}<span class="role">${i + 1}. ${esc(S.data.roles[s.role]?.label ?? s.role)}</span></div>
+              <div class="act" title="${esc(states[i].text)}">${esc(states[i].text)}</div>
+            </div>
+            <span class="sdot ${states[i].dot}" title="${esc(states[i].dot || 'aguardando')}"></span>
+          </div>`,
+        )
+        .join('');
+      return `<div class="line-card ${l.id === S.selected ? 'selected' : ''}" data-line="${l.id}" style="--sc:${color}" tabindex="0" role="button" aria-label="Abrir ${esc(l.name)}">
+        <div class="lc-head"><b>${esc(l.name)}</b><span class="count">${l.steps.length}</span><span class="letters">${workers.map(letter).join('')}</span></div>
+        <div class="lc-path">${esc(l.workdir || S.data.settings.defaultWorkdir || 'pasta não definida')}</div>
+        <div class="lc-progress"><span class="track"><span style="width:${l.steps.length ? Math.round((done / l.steps.length) * 100) : 0}%"></span></span><small>${done}/${l.steps.length} · ${esc(STATUS_TEXT[st][0])}${l.run?.round > 1 ? ` · rodada ${l.run.round}` : ''}</small></div>
+        ${rows}
+      </div>`;
+    })
+    .join('');
+}
+
+function scheduleFeed() {
+  if (UI.feedTimer) return;
+  UI.feedTimer = setTimeout(() => {
+    UI.feedTimer = null;
+    renderFeed();
+  }, 200);
+}
+
+function renderFeed() {
+  const feed = $('#feed');
+  if (!feed || !S.data) return;
+  const names = Object.fromEntries(S.data.lines.map((l) => [l.id, l.name]));
+  const all = [];
+  for (const [lineId, entries] of S.logs) {
+    if (!names[lineId]) continue;
+    for (const e of entries.slice(-60)) if (e.kind !== 'thinking') all.push({ ...e, lineId });
+  }
+  all.sort((a, b) => a.t - b.t);
+  const rows = all.slice(-80);
+  const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+  feed.innerHTML = rows.length
+    ? rows
+        .map((e) => {
+          const w = e.worker;
+          const text = String(e.text).split('\n')[0];
+          return `<div class="feed-row ${esc(e.kind)}" data-line="${e.lineId}">
+            <time>${new Date(e.t).toLocaleTimeString('pt-BR', { hour12: false })}</time>
+            ${w ? `<img src="${portraitURL(w)}" alt="">` : '<span></span>'}
+            <span class="fw">${w ? esc(wname(w)) : 'Escritório'}</span>
+            <span class="fl">${w ? letter(w) : ''}${esc(names[e.lineId])}</span>
+            <span class="ft" title="${esc(text)}">${e.kind === 'error' ? '⚠️' : e.kind === 'done' ? '✅' : activityIcon(text)} ${esc(text)}</span>
+          </div>`;
+        })
+        .join('')
+    : '<div class="empty">Quando uma linha rodar, o que cada IA faz aparece aqui.</div>';
+  if (stick) feed.scrollTop = feed.scrollHeight;
+}
+
+function drawBrand() {
+  const c = $('#brandIcon').getContext('2d');
+  const px = (x, y, w, h, col) => {
+    c.fillStyle = col;
+    c.fillRect(x * 2, y * 2, w * 2, h * 2);
+  };
+  px(2, 3, 10, 11, '#f1e3c6');
+  px(1, 2, 12, 2, '#c4623f');
+  px(1, 13, 12, 1, '#3d4150');
+  for (const [x, y] of [[3, 5], [6, 5], [9, 5], [3, 8], [9, 8]]) px(x, y, 2, 2, '#5fb0ff');
+  px(6, 9, 2, 4, '#7a3d3a');
+  px(6, 0, 2, 2, '#e07a4f');
+}
 
 // ---- boot -----------------------------------------------------------------
 
 const office = new Office($('#office'), {
-  onLine: (id) => {
-    if (S.selected !== id) S.diff = null;
-    S.selected = id;
-    office.setSelected(id);
-    if (isRunning(id) && S.tab === 'etapas') S.tab = 'vivo';
-    renderPanel();
-  },
+  onLine: (id) => selectLine(id, { focus: false }),
   onNew: createLine,
   onSkills: () => openModal('Biblioteca de Skills', skillsHtml()),
   onCopa: () => openModal('Comparativo Claude × Codex', compareHtml()),
@@ -920,6 +1090,69 @@ $('#modal').addEventListener('change', (e) => {
 $('#btnCompare').onclick = () => openModal('Comparativo Claude × Codex', compareHtml());
 $('#costs').onclick = () => openModal('Custos', costsHtml());
 $('#btnSettings').onclick = () => openModal('Configurações', settingsHtml());
+$('#btnSkills').onclick = () => openModal('Biblioteca de Skills', skillsHtml());
+$('#btnFit').onclick = () => office.fit();
+$('#btnZoomIn').onclick = () => office.zoomBy(1);
+$('#btnZoomOut').onclick = () => office.zoomBy(-1);
+$('#btnSidebar').onclick = () => {
+  document.body.classList.toggle('left-hidden');
+  $('#btnSidebar').setAttribute('aria-pressed', !document.body.classList.contains('left-hidden'));
+  updateInsets();
+};
+$('#btnActivity').onclick = () => {
+  const box = $('#activity');
+  box.classList.toggle('collapsed');
+  $('#btnActivity').setAttribute('aria-expanded', !box.classList.contains('collapsed'));
+  updateInsets();
+};
+$('#search').addEventListener('input', (e) => {
+  UI.search = e.target.value;
+  renderOffice();
+});
+$('#officePanel').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-filter]');
+  if (chip) {
+    const w = chip.dataset.filter;
+    UI.hide.has(w) ? UI.hide.delete(w) : UI.hide.add(w);
+    return renderOffice();
+  }
+  const card = e.target.closest('[data-line]');
+  if (card) selectLine(card.dataset.line);
+});
+$('#officePanel').addEventListener('keydown', (e) => {
+  const card = e.target.closest?.('[data-line]');
+  if (card && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    selectLine(card.dataset.line);
+  }
+});
+$('#feed').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-line]');
+  if (row) selectLine(row.dataset.line, { tab: 'vivo' });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches?.('input,textarea,select') || $('#modal').open) return;
+  if (e.key === '/') {
+    e.preventDefault();
+    if (document.body.classList.contains('left-hidden')) $('#btnSidebar').click();
+    $('#search').focus();
+  } else if (e.key === 'Escape' && S.selected) {
+    S.selected = null;
+    office.setSelected(null);
+    renderPanel();
+    renderOffice();
+  } else if (e.key === '+' || e.key === '=') office.zoomBy(1);
+  else if (e.key === '-') office.zoomBy(-1);
+});
+if (window.innerWidth <= 760) {
+  document.body.classList.add('left-hidden');
+  $('#activity').classList.add('collapsed');
+}
+$('#btnSidebar').setAttribute('aria-pressed', !document.body.classList.contains('left-hidden'));
+new ResizeObserver(() => updateInsets()).observe($('#topbar'));
+window.addEventListener('resize', () => updateInsets());
+drawBrand();
+updateInsets();
 wirePanel();
 wireModal();
 office.start();

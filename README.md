@@ -10,6 +10,16 @@ Cada **sala** é uma **linha de trabalho**: você escreve o que cada IA deve faz
 - **Economia de tokens**: a próxima IA recebe só o `RESUMO` da anterior e o diff (truncado), nunca a conversa inteira. Há orçamento de tokens por linha.
 - **Comparativo Claude × Codex**: tokens por etapa, uso de cache, tempo, taxa de aprovação na revisão e custo.
 
+### Como é a tela
+
+- **Mapa** em pixel art ocupando a tela: o prédio fica num terreno com árvores, calçada e rua. Arraste para mover, use a roda do mouse (ou `+`/`−`) para zoom e o botão de enquadrar para ver o prédio inteiro.
+- **Escritório** (à esquerda): busca (atalho `/`), filtro por IA e a lista de linhas, com o que cada IA está fazendo em cada etapa.
+- **Atividade** (embaixo): o feed de tudo o que as IAs fazem, em todas as linhas. Clique para abrir a linha.
+- **Detalhes** (à direita): etapas, log ao vivo, diff e tokens da linha selecionada. `Esc` fecha.
+- No topo: contadores, o cartão de cada IA (modelo, raciocínio, tokens e custo do dia) e os custos ao vivo.
+
+O visual foi inspirado no [Habblaud](https://github.com/marmottajr/habblaud) (MIT), outro escritório em pixel art para agentes do Claude Code e do Codex. A arte e o código daqui são próprios.
+
 ## Como rodar
 
 Requisitos: Node 20+, `git` e os CLIs que você já usa, autenticados:
