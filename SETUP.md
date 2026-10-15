@@ -68,7 +68,20 @@ O motor também tem interface web e documentação da API no navegador:
 
 ---
 
-## 3. Sua primeira busca pelo terminal
+## 3. Sua primeira busca pelo mapa
+
+```bash
+python3 scripts/app.py          # no Windows: py scripts\app.py
+```
+
+O navegador abre em **http://localhost:8090** (outra porta: `--port 8091`). Digite a cidade, clique em
+**Desenhar área no mapa**, arraste o retângulo, escreva o tipo de negócio (`padarias`) e clique em
+**Buscar leads**. O CSV fica disponível no botão **Baixar CSV** e na pasta `resultados/`.
+
+> A interface do próprio motor em http://localhost:8080 não tem mapa nem WhatsApp. Use a do
+> leadsNEGOCIOS (porta 8090).
+
+## 3b. Sua primeira busca pelo terminal
 
 Script bash. Argumentos: `"<termo>" <lat> <lon> [depth]`:
 

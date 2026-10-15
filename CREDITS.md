@@ -40,6 +40,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Mapa
+
+- **Leaflet 1.9.4** (BSD 2-Clause, © Volodymyr Agafonkin e CloudMade), incluído em
+  `web/vendor/leaflet/` com a licença original em `web/vendor/leaflet/LICENSE`.
+- **Mapas:** © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright) (ODbL).
+
 ## Motor de extração
 
 - **Projeto:** google-maps-scraper

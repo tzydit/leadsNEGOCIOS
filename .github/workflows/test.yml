@@ -14,5 +14,7 @@ jobs:
           python-version: "3.12"
       - name: Testes offline do CLI
         run: python3 scripts/test_scrape.py
+      - name: Testes offline da interface com mapa
+        run: python3 scripts/test_app.py
       - name: Sintaxe do script bash
         run: bash -n scripts/scrape.sh

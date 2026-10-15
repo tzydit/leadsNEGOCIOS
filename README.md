@@ -15,11 +15,37 @@ por você em linguagem natural.
 
 | Objetivo | Comece aqui |
 |---|---|
-| Ter uma lista de leads em 5 minutos | [Início rápido](#início-rápido) |
+| Escolher a área num mapa e baixar os leads | [Interface com mapa](#interface-com-mapa) |
+| Ter uma lista de leads em 5 minutos pelo terminal | [Início rápido](#início-rápido) |
 | Deixar um agente de IA rodar a busca | [Uso com o Claude Code](#uso-com-o-claude-code-ou-outro-agente) |
 | Buscar vários termos ou a cidade inteira | [Lotes e o CLI em Python](#lotes-e-o-cli-em-python) |
 | Saber o que vem e onde para | [O que você recebe](#o-que-você-recebe) e [Limites reais](#limites-reais) |
 | Seguir uma receita pronta | [Guias e receitas](docs/README.md) |
+
+---
+
+## Interface com mapa
+
+O jeito mais fácil: suba o motor, abra a página e desenhe a área no mapa.
+
+```bash
+docker compose up -d
+python3 scripts/app.py          # no Windows: py scripts\app.py
+```
+
+O navegador abre em **http://localhost:8090**. Então:
+
+1. **Cidade:** digite `Curitiba, PR` e clique em **Ir**.
+2. **Área:** clique em **Desenhar área no mapa** e arraste um retângulo (um bairro, uma região ou
+   use **Cidade inteira**). A página mostra o tamanho da área, em quantos blocos ela será dividida
+   e o tempo estimado.
+3. **O que buscar:** só o tipo de negócio, um por linha (`padarias`, `confeitarias`). A área do mapa
+   já define o lugar.
+4. **Buscar leads.** Os blocos rodam um de cada vez, os pontos aparecem no mapa, e no fim vem a
+   tabela e o botão **Baixar CSV** com e-mail, WhatsApp, Instagram e as coordenadas.
+
+Os arquivos também ficam salvos na pasta `resultados/`. Deixe a janela do `app.py` aberta enquanto usa
+a página. O mapa usa o OpenStreetMap, então precisa de internet.
 
 ---
 
@@ -188,9 +214,12 @@ leadsNEGOCIOS/
 ├── docker-compose.yml      motor local em 127.0.0.1:8080
 ├── .env.example            modelo de configuração
 ├── scripts/
+│   ├── app.py              interface com mapa em http://localhost:8090
 │   ├── scrape.py           CLI Python: única, lote, geocodificação, redes sociais, CSV
 │   ├── scrape.sh           CLI bash: busca única
+│   ├── test_app.py         testes offline da interface com mapa
 │   └── test_scrape.py      testes offline (python3 scripts/test_scrape.py)
+├── web/                    página do mapa (Leaflet incluído, sem CDN)
 ├── examples/               corpo de job de exemplo e lista de termos em lote
 ├── docs/                   guias e receitas
 ├── .claude/

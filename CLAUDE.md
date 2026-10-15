@@ -35,8 +35,13 @@ só usos claramente abusivos (vigiar pessoas, spam). A skill tem a orientação 
 - Antes de um job grande, diga o custo uma vez: tempo e risco de limitação de IP. Depois siga.
 - E-mails e telefones extraídos são **dados pessoais** (LGPD). Não despeje CSVs grandes no chat: resuma e salve no disco.
 
+## Interface com mapa
+`python3 scripts/app.py` abre http://localhost:8090: o usuário desenha a área no mapa, digita o tipo
+de negócio e baixa o CSV. Se o usuário quiser escolher a área visualmente, indique essa página.
+
 ## Testes
-`python3 scripts/test_scrape.py` roda a suíte offline (sem rede, sem Docker). Rode depois de mexer em `scripts/scrape.py`.
+`python3 scripts/test_scrape.py` e `python3 scripts/test_app.py` rodam as suítes offline (sem rede,
+sem Docker). Rode depois de mexer em `scripts/` ou `web/`.
 
 ## Setup
 Se o contêiner não estiver rodando: `docker compose up -d` e confirme com `curl http://localhost:8080/api/v1/jobs`.

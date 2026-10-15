@@ -9,6 +9,7 @@ output/
 gmaps-output/
 data/
 gmapsdata/
+resultados/
 
 # Python
 __pycache__/
