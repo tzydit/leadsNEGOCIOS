@@ -22,7 +22,7 @@ test('Claude: evento result define texto final, uso total e custo', () => {
   const st = claudeState();
   parseClaudeEvent({ type: 'result', subtype: 'success', is_error: false, result: 'feito\nRESUMO:\n- x', total_cost_usd: 0.12, usage: { input_tokens: 3, cache_read_input_tokens: 1000, cache_creation_input_tokens: 200, output_tokens: 50 } }, st);
   assert.equal(st.finalText, 'feito\nRESUMO:\n- x');
-  assert.deepEqual(st.usage, { input: 1203, cachedInput: 1000, output: 50, costUsd: 0.12 });
+  assert.deepEqual(st.usage, { input: 1203, cachedInput: 1000, cacheWrite: 200, output: 50, costUsd: 0.12, model: '' });
   assert.equal(st.error, null);
 });
 
@@ -46,7 +46,7 @@ test('Codex: itens do exec --json viram eventos e uso é somado', () => {
   parseCodexEvent({ type: 'item.completed', item: { type: 'agent_message', text: 'ok\nVEREDITO: APROVADO' } }, st);
   parseCodexEvent({ type: 'turn.completed', usage: { input_tokens: 5000, cached_input_tokens: 4000, output_tokens: 300 } }, st);
   assert.equal(st.lastText, 'ok\nVEREDITO: APROVADO');
-  assert.deepEqual(st.usage, { input: 5000, cachedInput: 4000, output: 300, costUsd: 0 });
+  assert.deepEqual(st.usage, { input: 5000, cachedInput: 4000, cacheWrite: 0, output: 300, costUsd: 0, model: '' });
   parseCodexEvent({ type: 'turn.failed', error: { message: 'quota' } }, st);
   assert.equal(st.error, 'quota');
 });

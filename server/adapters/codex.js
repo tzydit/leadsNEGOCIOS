@@ -107,7 +107,7 @@ export function buildCodexArgs({ role, cwd, config }) {
 }
 
 export function runCodex({ prompt, cwd, role, config, onEvent, onUsage }) {
-  const st = { usage: emptyUsage(), lastText: '', error: null, finished: false, usageChanged: false };
+  const st = { usage: emptyUsage(config.model), lastText: '', error: null, finished: false, usageChanged: false };
   const handle = runJsonl({
     bin: config.bin || 'codex',
     args: buildCodexArgs({ role, cwd, config }),

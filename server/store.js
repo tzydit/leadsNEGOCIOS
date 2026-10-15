@@ -1,10 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_PRICING } from './pricing.js';
 
 export const DEFAULT_SETTINGS = {
   defaultWorkdir: '',
   diffMaxChars: 12000,
   handoffMaxChars: 2000,
+  billingPollSeconds: 300,
+  pricing: DEFAULT_PRICING,
   workers: {
     claude: {
       mode: 'auto', // auto | real | simulado
@@ -34,7 +37,7 @@ export class Store {
   constructor(file) {
     this.file = file;
     this.timer = null;
-    this.data = { settings: structuredClone(DEFAULT_SETTINGS), lines: [], stats: defaultStats(), seq: 0 };
+    this.data = { settings: structuredClone(DEFAULT_SETTINGS), lines: [], stats: defaultStats(), costDaily: {}, seq: 0 };
     if (file && fs.existsSync(file)) {
       try {
         const loaded = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -43,6 +46,7 @@ export class Store {
           ...loaded,
           settings: mergeSettings(DEFAULT_SETTINGS, loaded.settings),
           stats: { ...defaultStats(), ...loaded.stats },
+          costDaily: loaded.costDaily ?? {},
         };
         // Linhas que estavam rodando quando o servidor caiu não estão mais.
         for (const line of this.data.lines) {
@@ -65,6 +69,15 @@ export class Store {
 
   get stats() {
     return this.data.stats;
+  }
+
+  /** Soma o custo real (não simulado) de uma etapa no dia local. */
+  addDailyCost(worker, usd, date = new Date()) {
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const d = (this.data.costDaily[day] ??= {});
+    d[worker] = (d[worker] ?? 0) + usd;
+    const days = Object.keys(this.data.costDaily).sort();
+    for (const old of days.slice(0, Math.max(0, days.length - 62))) delete this.data.costDaily[old];
   }
 
   nextId(prefix) {
@@ -92,6 +105,7 @@ export function mergeSettings(base, patch = {}) {
   return {
     ...base,
     ...patch,
+    pricing: patch?.pricing ?? base.pricing,
     workers: {
       claude: { ...base.workers.claude, ...patch?.workers?.claude },
       codex: { ...base.workers.codex, ...patch?.workers?.codex },

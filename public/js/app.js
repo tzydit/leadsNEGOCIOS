@@ -15,6 +15,18 @@ const fmtMs = (ms) => {
   return s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${s}s`;
 };
 const total = (u) => (u?.input ?? 0) + (u?.output ?? 0);
+const fmtUsd = (v) => {
+  v = Number(v) || 0;
+  if (v === 0) return '$0';
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  if (v < 1) return `$${v.toFixed(3)}`;
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const ago = (t) => {
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? 'agora' : s < 3600 ? `há ${Math.round(s / 60)} min` : `há ${Math.round(s / 3600)} h`;
+};
 const wname = (w) => WORKER_STYLE[w]?.name ?? w;
 
 const S = {
@@ -90,7 +102,12 @@ function handle(msg) {
     if (S.selected === msg.lineId && S.tab === 'vivo') appendLog(msg.entry);
   } else if (msg.type === 'stats') {
     S.data.stats = msg.stats;
+    if (msg.costDaily) S.data.costDaily = msg.costDaily;
     renderWorkers();
+  } else if (msg.type === 'billing') {
+    S.data.billing = msg.billing;
+    renderCosts();
+    if ($('#modal').open && $('#modalTitle').textContent === 'Custos') $('#modalBody').innerHTML = costsHtml();
   } else if (msg.type === 'running') {
     S.data.running = new Set(msg.running);
   }
@@ -146,13 +163,14 @@ function renderWorkers() {
       <canvas width="24" height="36" aria-hidden="true"></canvas>
       <div>
         <div class="wname">${esc(wname(w))} <span class="mode ${info.mode}" title="${info.mode === 'simulado' ? 'CLI não encontrado ou modo simulado: nada é executado de verdade' : 'Executando o CLI de verdade'}">${info.mode}</span></div>
-        <div class="wmeta">${busy ? `${busy} sala(s) ativa(s)` : 'na copa'} · ${fmt(st.input + st.output)} tokens</div>
+        <div class="wmeta" title="${busy ? `trabalhando em ${busy} sala(s)` : 'na copa'}">${busy ? `▶ ${busy} sala${busy > 1 ? 's' : ''}` : 'na copa'} · ${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}</div>
       </div>`;
     const cv = chip.querySelector('canvas').getContext('2d');
     cv.imageSmoothingEnabled = false;
     cv.drawImage(sprite(w, 'walk0', 2), 0, 0);
     box.append(chip);
   }
+  renderCosts();
   const sel = $('#tplSelect');
   if (!sel.options.length) {
     sel.innerHTML = Object.entries(S.data.templates)
@@ -398,7 +416,7 @@ function lineTokens(line) {
 function tokensHtml(line) {
   const at = line.run?.attempts ?? [];
   if (!at.length) return '<div class="empty">Rode a linha para ver o consumo de cada etapa.</div>';
-  const sum = at.reduce((a, t) => ({ input: a.input + t.usage.input, cachedInput: a.cachedInput + t.usage.cachedInput, output: a.output + t.usage.output, costUsd: a.costUsd + (t.usage.costUsd || 0), ms: a.ms + ((t.endedAt || Date.now()) - t.startedAt) }), { input: 0, cachedInput: 0, output: 0, costUsd: 0, ms: 0 });
+  const sum = at.reduce((a, t) => ({ input: a.input + t.usage.input, cachedInput: a.cachedInput + t.usage.cachedInput, output: a.output + t.usage.output, costUsd: a.costUsd + (t.cost || 0), exact: a.exact && (t.costExact || !t.cost), ms: a.ms + ((t.endedAt || Date.now()) - t.startedAt) }), { input: 0, cachedInput: 0, output: 0, costUsd: 0, exact: true, ms: 0 });
   const cachePct = sum.input ? Math.round((sum.cachedInput / sum.input) * 100) : 0;
   const budget = line.tokenBudget ? `<p class="compare-note">Orçamento: ${fmt(total(sum))} de ${fmt(line.tokenBudget)} tokens (${Math.round((total(sum) / line.tokenBudget) * 100)}%).</p>` : '';
   return `<table>
@@ -409,13 +427,13 @@ function tokensHtml(line) {
         <td>${t.step + 1}${t.round > 1 ? `<small> r${t.round}</small>` : ''}</td>
         <td><span class="dot" style="--wc:${WORKER_STYLE[t.worker].color}"></span>${esc(wname(t.worker))} · ${esc(S.data.roles[t.role]?.label ?? t.role)}${t.verdict ? ` <span class="verdict ${t.verdict}">${t.verdict === 'APROVADO' ? '✔' : '⚠'}</span>` : ''}${t.mode === 'simulado' ? ' <small>(sim)</small>' : ''}</td>
         <td>${fmt(t.usage.input)}</td><td>${fmt(t.usage.cachedInput)}</td><td>${fmt(t.usage.output)}</td>
-        <td>${t.usage.costUsd ? `$${t.usage.costUsd.toFixed(3)}` : '—'}</td>
+        <td title="${t.costExact ? 'custo informado pelo CLI' : `estimativa pela tabela de preços (${esc(t.usage.model || 'modelo padrão')})`}">${t.cost ? `${t.costExact ? '' : '≈'}${fmtUsd(t.cost)}` : '—'}</td>
         <td>${fmtMs((t.endedAt || Date.now()) - t.startedAt)}</td></tr>`,
       )
       .join('')}</tbody>
-    <tfoot><tr><td colspan="2">Total</td><td>${fmt(sum.input)}</td><td>${fmt(sum.cachedInput)}</td><td>${fmt(sum.output)}</td><td>${sum.costUsd ? `$${sum.costUsd.toFixed(3)}` : '—'}</td><td>${fmtMs(sum.ms)}</td></tr></tfoot>
+    <tfoot><tr><td colspan="2">Total</td><td>${fmt(sum.input)}</td><td>${fmt(sum.cachedInput)}</td><td>${fmt(sum.output)}</td><td>${sum.costUsd ? `${sum.exact ? '' : '≈'}${fmtUsd(sum.costUsd)}` : '—'}</td><td>${fmtMs(sum.ms)}</td></tr></tfoot>
   </table>
-  <p class="compare-note">${cachePct}% da entrada veio do cache (mais barato). O custo em dólar só é informado pelo Claude.</p>${budget}`;
+  <p class="compare-note">${cachePct}% da entrada veio do cache (mais barato). Custo com ≈ é estimativa pela tabela de preços (⚙ Configurações); sem ≈ é o valor informado pelo Claude. Etapas simuladas não entram nos totais do dia.</p>${budget}`;
 }
 
 // ---- modais ---------------------------------------------------------------
@@ -443,7 +461,7 @@ function compareHtml() {
     ['Aprovação na revisão*', (s) => (s.aprovadas + s.reprovadas ? (s.aprovadas / (s.aprovadas + s.reprovadas)) * 100 : 0), (v) => `${Math.round(v)}%`],
     ['Revisões feitas', (s) => s.revisoes, (v) => String(v)],
     ['Falhas', (s) => s.falhas, (v) => String(v)],
-    ['Custo total', (s) => s.costUsd, (v) => (v ? `$${v.toFixed(2)}` : '—')],
+    ['Custo total', (s) => s.costUsd, (v) => (v ? fmtUsd(v) : '—')],
   ];
   const rows = metrics
     .map(([label, f, show]) => {
@@ -487,6 +505,16 @@ function settingsHtml() {
       <div class="field"><label>Máx. caracteres do resumo repassado</label><input type="number" min="200" step="100" name="handoffMaxChars" value="${s.handoffMaxChars}"></div>
     </div>
     ${workerForm('claude')}${workerForm('codex')}
+    <h3>Preços (US$ por 1 milhão de tokens)</h3>
+    <p class="compare-note">Usados para o custo ao vivo. O Claude informa o custo exato ao fim de cada etapa; o Codex não, então vale a estimativa. Confira os preços atuais nas páginas da Anthropic e da OpenAI. As linhas <code>claude-padrao</code> e <code>codex-padrao</code> valem quando o modelo não é reconhecido.</p>
+    <table class="pricing">
+      <thead><tr><th>Modelo</th><th>Entrada</th><th>Cache lido</th><th>Cache gravado</th><th>Saída</th><th></th></tr></thead>
+      <tbody id="pricingRows">${Object.entries(s.pricing ?? {}).map(([name, p], i) => pricingRow(i, name, p)).join('')}</tbody>
+    </table>
+    <button class="btn small" type="button" data-act="add-price">+ modelo</button>
+    <div class="grid" style="margin-top:12px">
+      <div class="field"><label>Atualizar gasto das contas a cada (segundos)</label><input type="number" min="60" step="60" name="billingPollSeconds" value="${s.billingPollSeconds ?? 300}"></div>
+    </div>
     <p class="compare-note">Revisores e auditores rodam em modo somente leitura (Claude com ferramentas de leitura; Codex com sandbox read-only). Executores podem editar arquivos da pasta.</p>
     <div class="run-row"><button class="btn primary" type="submit">Salvar</button><button class="btn" type="button" data-act="detect">Detectar CLIs de novo</button></div>
   </form>`;
@@ -629,6 +657,16 @@ function wireModal() {
       if (!confirm('Zerar os números do comparativo?')) return;
       await api('POST', '/api/stats/reset');
       $('#modalBody').innerHTML = compareHtml();
+    } else if (act === 'add-price') {
+      const tbody = $('#pricingRows');
+      tbody.insertAdjacentHTML('beforeend', pricingRow(Date.now(), '', {}));
+      tbody.lastElementChild.querySelector('input').focus();
+    } else if (act === 'del-price') {
+      e.target.closest('tr').remove();
+    } else if (act === 'billing-refresh') {
+      S.data.billing = await api('POST', '/api/billing/refresh');
+      $('#modalBody').innerHTML = costsHtml();
+      renderCosts();
     } else if (act === 'detect') {
       await api('POST', '/api/detect');
       $('#modalBody').innerHTML = settingsHtml();
@@ -639,15 +677,117 @@ function wireModal() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = { workers: { claude: {}, codex: {} } };
+    const rows = {};
     for (const [k, v] of fd.entries()) {
-      const [a, b] = k.split('.');
-      if (b) body.workers[a][b] = v;
+      const [a, b, c] = k.split('.');
+      if (a === 'price') (rows[b] ??= {})[c] = v;
+      else if (b) body.workers[a][b] = v;
       else body[a] = v;
+    }
+    body.pricing = {};
+    for (const r of Object.values(rows)) {
+      const name = String(r.name || '').trim().toLowerCase();
+      if (name) body.pricing[name] = { input: +r.input || 0, cacheRead: +r.cacheRead || 0, cacheWrite: +r.cacheWrite || 0, output: +r.output || 0 };
     }
     await api('PUT', '/api/settings', body);
     m.close();
     toast('Configurações salvas');
   }));
+}
+
+// ---- custos ----------------------------------------------------------------
+
+/** Etapas rodando agora (modo real), com o custo parcial ao vivo. */
+function runningAttempts(worker) {
+  const out = [];
+  for (const line of S.data.lines) {
+    if (line.run?.status !== 'running') continue;
+    for (const a of line.run.attempts) {
+      if (a.status === 'running' && a.mode === 'real' && (!worker || a.worker === worker)) out.push({ line, a });
+    }
+  }
+  return out;
+}
+const liveCost = (worker) => runningAttempts(worker).reduce((acc, { a }) => acc + (a.cost || 0), 0);
+const todayCost = (worker) => (S.data.costDaily?.[dayKey()]?.[worker] ?? 0) + liveCost(worker);
+function monthCost(worker) {
+  const prefix = dayKey().slice(0, 7);
+  const past = Object.entries(S.data.costDaily ?? {})
+    .filter(([d]) => d.startsWith(prefix))
+    .reduce((acc, [, v]) => acc + (v[worker] ?? 0), 0);
+  return past + liveCost(worker);
+}
+
+const ACCOUNTS = { anthropic: 'Conta Anthropic', openai: 'Conta OpenAI' };
+
+function renderCosts() {
+  const el = $('#costs');
+  if (!el || !S.data) return;
+  const workers = Object.keys(WORKER_STYLE);
+  const live = workers.reduce((a, w) => a + liveCost(w), 0);
+  const today = workers.reduce((a, w) => a + todayCost(w), 0);
+  const parts = [];
+  parts.push(`<span class="cost-item${live ? ' live' : ''}"><span class="cost-dot"></span><small>agora</small> ${fmtUsd(live)}</span>`);
+  parts.push(`<span class="cost-item"><small>hoje</small> ${fmtUsd(today)}</span>`);
+  for (const [id, b] of Object.entries(S.data.billing ?? {})) {
+    if (!b.configured) continue;
+    const val = b.error ? '<span class="cost-err">erro</span>' : b.monthUsd == null ? '…' : fmtUsd(b.monthUsd);
+    parts.push(`<span class="cost-item"><small>${id === 'anthropic' ? 'Anthropic' : 'OpenAI'} mês</small> ${val}</span>`);
+  }
+  el.innerHTML = parts.join('');
+}
+
+function costsHtml() {
+  const workers = Object.keys(WORKER_STYLE);
+  const now = runningAttempts();
+  const nowHtml = now.length
+    ? `<table><thead><tr><th>Linha</th><th>IA · modelo</th><th>Tokens</th><th>Custo</th></tr></thead><tbody>${now
+        .map(({ line, a }) => `<tr><td>${esc(line.name)}</td><td><span class="dot" style="--wc:${WORKER_STYLE[a.worker].color}"></span>${esc(wname(a.worker))} · ${esc(a.usage.model || 'padrão')}</td><td>${fmt(total(a.usage))}</td><td>${a.costExact ? '' : '≈'}${fmtUsd(a.cost)}</td></tr>`)
+        .join('')}</tbody></table>`
+    : '<p class="compare-note">Nenhuma IA trabalhando agora.</p>';
+
+  const days = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(dayKey(d));
+  }
+  const rowFor = (day) => {
+    const v = S.data.costDaily?.[day] ?? {};
+    const live = day === dayKey() ? Object.fromEntries(workers.map((w) => [w, liveCost(w)])) : {};
+    const cells = workers.map((w) => (v[w] ?? 0) + (live[w] ?? 0));
+    if (!cells.some(Boolean)) return '';
+    return `<tr><td>${day === dayKey() ? 'hoje' : day.split('-').reverse().slice(0, 2).join('/')}</td>${cells.map((c) => `<td>${c ? fmtUsd(c) : '—'}</td>`).join('')}<td>${fmtUsd(cells.reduce((a, b) => a + b, 0))}</td></tr>`;
+  };
+  const dayRows = days.map(rowFor).join('');
+  const monthCells = workers.map(monthCost);
+
+  const accounts = Object.entries(S.data.billing ?? {})
+    .map(([id, b]) => {
+      if (!b.configured) {
+        return `<div class="account off"><b>${ACCOUNTS[id]}</b><span>não configurada — coloque <code>${esc(b.env)}</code> no arquivo <code>.env</code> e reinicie</span></div>`;
+      }
+      if (b.error) return `<div class="account err"><b>${ACCOUNTS[id]}</b><span>erro: ${esc(b.error)}</span></div>`;
+      return `<div class="account"><b>${ACCOUNTS[id]}</b><span>mês ${b.monthUsd == null ? '…' : fmtUsd(b.monthUsd)} · hoje (UTC) ${b.todayUsd == null ? '…' : fmtUsd(b.todayUsd)}</span><small>${b.updatedAt ? `atualizado ${ago(b.updatedAt)}` : 'carregando…'}</small></div>`;
+    })
+    .join('');
+
+  return `<h3>Agora</h3>${nowHtml}
+    <h3>Gasto das linhas do AI Office</h3>
+    <table class="costs-table"><thead><tr><th>Dia</th>${workers.map((w) => `<th>${esc(wname(w))}</th>`).join('')}<th>Total</th></tr></thead>
+      <tbody>${dayRows || `<tr><td colspan="${workers.length + 2}">Nenhum gasto real ainda.</td></tr>`}</tbody>
+      <tfoot><tr><td>Mês</td>${monthCells.map((c) => `<td>${fmtUsd(c)}</td>`).join('')}<td>${fmtUsd(monthCells.reduce((a, b) => a + b, 0))}</td></tr></tfoot>
+    </table>
+    <p class="compare-note">Claude: custo informado pelo CLI. Codex: estimativa pela tabela de preços. Com assinatura (Claude Pro/Max, ChatGPT Plus/Pro) o valor é o equivalente em API — a cobrança real é a mensalidade.</p>
+    <h3>Contas (gasto real da organização)</h3>
+    ${accounts}
+    <p class="compare-note">Lido das APIs de custo com chaves de <b>administrador</b> (só existem em organizações na API, não em contas individuais nem assinaturas). Inclui tudo o que a organização gastou, não só o AI Office. Os dados chegam com alguns minutos de atraso.</p>
+    <button class="btn small" data-act="billing-refresh" ${Object.values(S.data.billing ?? {}).some((b) => b.configured) ? '' : 'disabled'}>Atualizar contas agora</button>`;
+}
+
+function pricingRow(i, name, p) {
+  const cell = (f) => `<td><input type="number" min="0" step="any" name="price.${i}.${f}" value="${p[f] ?? 0}" aria-label="${f}"></td>`;
+  return `<tr><td><input type="text" name="price.${i}.name" value="${esc(name)}" placeholder="nome-do-modelo" aria-label="modelo"></td>${['input', 'cacheRead', 'cacheWrite', 'output'].map(cell).join('')}<td><button class="btn ghost small" type="button" data-act="del-price" aria-label="Remover">✕</button></td></tr>`;
 }
 
 const createLine = safe(async () => {
@@ -675,6 +815,7 @@ const office = new Office($('#office'), {
 
 $('#btnNewLine').onclick = createLine;
 $('#btnCompare').onclick = () => openModal('Comparativo Claude × Codex', compareHtml());
+$('#costs').onclick = () => openModal('Custos', costsHtml());
 $('#btnSettings').onclick = () => openModal('Configurações', settingsHtml());
 wirePanel();
 wireModal();

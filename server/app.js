@@ -4,11 +4,12 @@ import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { MAX_STEPS, TEMPLATES, newLine, sanitizeLine } from './lines.js';
 import { ROLES, WORKERS } from './prompts.js';
+import { sanitizePricing } from './pricing.js';
 import { defaultStats, mergeSettings } from './store.js';
 import { hostAllowed, localOnly, originAllowed } from './security.js';
 
 /** Monta o app HTTP + WebSocket em volta de um Orchestrator. */
-export function createApp({ store, orchestrator, skills, publicDir, extraHosts = [] }) {
+export function createApp({ store, orchestrator, skills, publicDir, billing = null, extraHosts = [] }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(localOnly({ extraHosts }));
@@ -30,6 +31,8 @@ export function createApp({ store, orchestrator, skills, publicDir, extraHosts =
     settings: store.settings,
     lines: store.lines,
     stats: store.stats,
+    costDaily: store.data.costDaily,
+    billing: billing?.state ?? {},
     workers: orchestrator.workersInfo(),
     skills: skills.map(({ name, description }) => ({ name, description })),
     roles: Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, defaultSkills: v.defaultSkills }])),
@@ -58,6 +61,8 @@ export function createApp({ store, orchestrator, skills, publicDir, extraHosts =
     if (b.defaultWorkdir !== undefined) patch.defaultWorkdir = String(b.defaultWorkdir).slice(0, 500).trim();
     if (b.diffMaxChars !== undefined) patch.diffMaxChars = Math.min(200000, Math.max(1000, Number(b.diffMaxChars) || 12000));
     if (b.handoffMaxChars !== undefined) patch.handoffMaxChars = Math.min(20000, Math.max(200, Number(b.handoffMaxChars) || 2000));
+    if (b.billingPollSeconds !== undefined) patch.billingPollSeconds = Math.min(3600, Math.max(60, Number(b.billingPollSeconds) || 300));
+    if (b.pricing !== undefined) patch.pricing = sanitizePricing(b.pricing);
     patch.workers = {};
     for (const w of Object.keys(WORKERS)) {
       const src = b.workers?.[w];
@@ -74,8 +79,13 @@ export function createApp({ store, orchestrator, skills, publicDir, extraHosts =
     store.data.settings = mergeSettings(store.settings, patch);
     store.save();
     await orchestrator.detect();
+    if (patch.billingPollSeconds) billing?.start(patch.billingPollSeconds);
     broadcast({ type: 'state', state: snapshot() });
     res.json({ ok: true });
+  }));
+
+  app.post('/api/billing/refresh', wrap(async (req, res) => {
+    res.json(billing ? await billing.refresh() : {});
   }));
 
   app.post('/api/lines', wrap(async (req, res) => {
@@ -160,7 +170,8 @@ export function createApp({ store, orchestrator, skills, publicDir, extraHosts =
   wss.on('connection', (ws) => ws.send(JSON.stringify({ type: 'state', state: snapshot() })));
   orchestrator.on('line', (line) => broadcast({ type: 'line', line, running: snapshot().running }));
   orchestrator.on('log', (msg) => broadcast({ type: 'log', ...msg }));
-  orchestrator.on('stats', (stats) => broadcast({ type: 'stats', stats }));
+  orchestrator.on('stats', (stats) => broadcast({ type: 'stats', stats, costDaily: store.data.costDaily }));
+  billing?.on('update', (state) => broadcast({ type: 'billing', billing: state }));
 
   const attach = (server) => {
     server.on('upgrade', (req, socket, head) => {

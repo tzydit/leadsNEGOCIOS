@@ -9,4 +9,5 @@ export const clip = (s, n) => {
   return str.length > n ? str.slice(0, n - 1) + '…' : str;
 };
 
-export const emptyUsage = () => ({ input: 0, cachedInput: 0, output: 0, costUsd: 0 });
+// input inclui cachedInput (lido do cache) e cacheWrite (gravado no cache).
+export const emptyUsage = (model = '') => ({ input: 0, cachedInput: 0, cacheWrite: 0, output: 0, costUsd: 0, model });

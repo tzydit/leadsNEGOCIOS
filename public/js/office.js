@@ -800,8 +800,10 @@ export class Office {
         this.text(ctx, this.fit(ctx, line.name, maxW), lx, r.y + 7, { size: 6 });
         const [label, color] = STATUS_TEXT[lineStatus(line)];
         const round = line.run?.round > 1 ? ` · rodada ${line.run.round}` : '';
+        const spent = (line.run?.attempts ?? []).reduce((a, t) => a + (t.mode === 'real' ? t.cost || 0 : 0), 0);
+        const cost = spent ? ` · $${spent < 1 ? spent.toFixed(3) : spent.toFixed(2)}` : '';
         ctx.font = '4.5px "IBM Plex Mono", monospace';
-        this.text(ctx, this.fit(ctx, label + round, maxW), lx, r.y + 17, { size: 4.5, color, font: '"IBM Plex Mono"' });
+        this.text(ctx, this.fit(ctx, label + round + cost, maxW), lx, r.y + 17, { size: 4.5, color, font: '"IBM Plex Mono"' });
       } else if (r.kind === 'new') {
         this.text(ctx, '+ nova linha', r.x + r.w / 2, r.y + r.h / 2 + 8, { size: 6, color: '#5d6690', align: 'center', shadow: false });
       } else if (r.kind === 'skills') {

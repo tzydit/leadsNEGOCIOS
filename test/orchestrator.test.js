@@ -121,3 +121,25 @@ test('worktree isolado: executor escreve, revisor recebe o diff com o arquivo no
   assert.match(review, /\+dois/);
   assert.match(review, /criei novo\.js/);
 });
+
+test('custo: etapa real entra no gasto do dia, simulada não', async () => {
+  const usage = { input: 1_000_000, cachedInput: 0, cacheWrite: 0, output: 0, costUsd: 0, model: 'gpt-x' };
+  const codex = () => ({ done: Promise.resolve({ ok: true, finalText: 'ok\nVEREDITO: APROVADO', usage }), kill() {} });
+  const simulated = createSimulatedRunner({ stepMs: 1, decide: () => 'APROVADO' });
+  const dir = tmp();
+  const { orch, line, store } = setup({
+    runners: { codex, simulated },
+    detect: async (bin) => ({ available: bin === 'codex', version: 'x' }),
+    line: { workdir: dir, useWorktree: false },
+  });
+  await orch.detect();
+  await orch.start('l1');
+  const [exec, review] = line.run.attempts;
+  assert.equal(exec.mode, 'simulado');
+  assert.equal(review.mode, 'real');
+  assert.equal(review.cost, 2); // 1M de entrada × US$ 2 (codex-padrao)
+  assert.equal(review.costExact, false);
+  const today = Object.values(store.data.costDaily)[0];
+  assert.deepEqual(today, { codex: 2 });
+  assert.equal(store.stats.claude.costUsd, 0);
+});

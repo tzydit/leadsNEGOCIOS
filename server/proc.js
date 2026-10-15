@@ -36,6 +36,14 @@ function quoteWin(arg) {
   return `"${arg.replace(/"/g, '""')}"`;
 }
 
+// Chaves de administrador (usadas só para ler custos) nunca vão para as IAs.
+const PRIVATE_ENV = ['ANTHROPIC_ADMIN_KEY', 'OPENAI_ADMIN_KEY'];
+export function childEnv(extra = {}) {
+  const out = { ...process.env, ...extra };
+  for (const k of PRIVATE_ENV) delete out[k];
+  return out;
+}
+
 /**
  * Roda um processo que emite JSONL no stdout. Cada linha JSON vira onJson(obj);
  * linhas que não são JSON vão para onText. Retorna { done, kill }.
@@ -43,7 +51,7 @@ function quoteWin(arg) {
 export function runJsonl({ bin, args, cwd, stdin, env, onJson, onText }) {
   const child = spawn(IS_WIN ? quoteWin(bin) : bin, IS_WIN ? args.map(quoteWin) : args, {
     cwd,
-    env: { ...process.env, ...env },
+    env: childEnv(env),
     shell: IS_WIN,
     detached: !IS_WIN,
     stdio: ['pipe', 'pipe', 'pipe'],

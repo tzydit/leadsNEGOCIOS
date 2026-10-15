@@ -58,6 +58,7 @@ function toolActivity(name, input = {}) {
 export function parseClaudeEvent(obj, st) {
   const events = [];
   if (obj.type === 'system' && obj.subtype === 'init') {
+    if (obj.model) st.usage.model = obj.model;
     events.push({ kind: 'info', text: `Sessão Claude iniciada${obj.model ? ` (${obj.model})` : ''}` });
   } else if (obj.type === 'assistant' && obj.message) {
     const msg = obj.message;
@@ -76,8 +77,10 @@ export function parseClaudeEvent(obj, st) {
       st.seen.add(msg.id);
       const u = msg.usage;
       const cached = u.cache_read_input_tokens ?? 0;
+      if (msg.model && !st.usage.model) st.usage.model = msg.model;
       st.usage.input += (u.input_tokens ?? 0) + cached + (u.cache_creation_input_tokens ?? 0);
       st.usage.cachedInput += cached;
+      st.usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
       st.usage.output += u.output_tokens ?? 0;
       st.usageChanged = true;
     }
@@ -95,6 +98,7 @@ export function parseClaudeEvent(obj, st) {
       const cached = u.cache_read_input_tokens ?? 0;
       st.usage.input = (u.input_tokens ?? 0) + cached + (u.cache_creation_input_tokens ?? 0);
       st.usage.cachedInput = cached;
+      st.usage.cacheWrite = u.cache_creation_input_tokens ?? 0;
       st.usage.output = u.output_tokens ?? 0;
     }
     if (typeof obj.total_cost_usd === 'number') st.usage.costUsd = obj.total_cost_usd;
@@ -124,7 +128,7 @@ export function buildClaudeArgs({ role, config }) {
 }
 
 export function runClaude({ prompt, cwd, role, config, onEvent, onUsage }) {
-  const st = { usage: emptyUsage(), seen: new Set(), lastText: '', finalText: '', error: null, finished: false, usageChanged: false };
+  const st = { usage: emptyUsage(config.model), seen: new Set(), lastText: '', finalText: '', error: null, finished: false, usageChanged: false };
   const handle = runJsonl({
     bin: config.bin || 'claude',
     args: buildClaudeArgs({ role, config }),

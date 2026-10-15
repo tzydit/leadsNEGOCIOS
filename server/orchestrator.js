@@ -8,6 +8,7 @@ import { clip } from './adapters/common.js';
 import { ensureWorktree, getDiff, headCommit, isGitRepo } from './git.js';
 import { buildPrompt, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
 import { detectCli } from './proc.js';
+import { attemptCost } from './pricing.js';
 
 const LOG_LIMIT = 400;
 const total = (u) => (u?.input ?? 0) + (u?.output ?? 0);
@@ -179,7 +180,9 @@ export class Orchestrator extends EventEmitter {
         activity: 'Chegando na mesa…',
         startedAt: Date.now(),
         endedAt: null,
-        usage: { input: 0, cachedInput: 0, output: 0, costUsd: 0 },
+        usage: { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, costUsd: 0, model: '' },
+        cost: 0,
+        costExact: false,
         verdict: null,
         summary: '',
         finalText: '',
@@ -211,6 +214,7 @@ export class Orchestrator extends EventEmitter {
         },
         onUsage: (u) => {
           attempt.usage = u;
+          this.priceAttempt(attempt);
           this.touch(line);
           if (line.tokenBudget > 0 && this.lineTokens(line) > line.tokenBudget && !ctl.budget) {
             ctl.budget = true;
@@ -224,6 +228,7 @@ export class Orchestrator extends EventEmitter {
 
       attempt.endedAt = Date.now();
       attempt.usage = res.usage ?? attempt.usage;
+      this.priceAttempt(attempt);
       attempt.finalText = String(res.finalText ?? '').slice(0, 20000);
       attempt.summary = extractSummary(res.finalText, settings.handoffMaxChars);
       attempt.verdict = VERDICT_ROLES.has(step.role) ? parseVerdict(res.finalText) : null;
@@ -285,13 +290,20 @@ export class Orchestrator extends EventEmitter {
     return (line.run?.attempts ?? []).reduce((acc, a) => acc + total(a.usage), 0);
   }
 
+  priceAttempt(attempt) {
+    const c = attemptCost(this.store.settings.pricing, attempt.worker, attempt.usage);
+    attempt.cost = c.usd;
+    attempt.costExact = c.exact;
+  }
+
   addStats(worker, attempt) {
+    if (attempt.mode === 'real' && attempt.cost > 0) this.store.addDailyCost(worker, attempt.cost);
     const s = this.store.stats[worker];
     s.steps += 1;
     s.input += attempt.usage.input ?? 0;
     s.cachedInput += attempt.usage.cachedInput ?? 0;
     s.output += attempt.usage.output ?? 0;
-    s.costUsd += attempt.usage.costUsd ?? 0;
+    if (attempt.mode === 'real') s.costUsd += attempt.cost ?? 0;
     s.ms += attempt.endedAt - attempt.startedAt;
   }
 
