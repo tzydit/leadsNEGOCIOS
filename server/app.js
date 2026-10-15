@@ -32,7 +32,7 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
 
   const snapshot = () => ({
     settings: store.settings,
-    lines: store.lines,
+    lines: store.lines.map((l) => ({ ...l, previewUrl: orchestrator.previews.get(l.id)?.url ?? null })),
     stats: store.stats,
     costDaily: store.data.costDaily,
     billing: billing?.state ?? {},
@@ -126,9 +126,23 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     const line = getLine(req.params.id);
     if (!line) throw notFound();
     if (orchestrator.isRunning(line.id)) throw Object.assign(new Error('Pare a linha antes de remover'), { status: 409 });
+    orchestrator.stopPreview(line.id);
     store.data.lines = store.lines.filter((l) => l.id !== line.id);
     store.save();
     broadcast({ type: 'state', state: snapshot() });
+    res.json({ ok: true });
+  }));
+
+  // Site da linha no ar para conferir o resultado.
+  app.post('/api/lines/:id/preview', wrap(async (req, res) => {
+    res.json({ url: await orchestrator.openPreview(req.params.id) });
+  }));
+
+  app.delete('/api/lines/:id/preview', wrap(async (req, res) => {
+    const line = getLine(req.params.id);
+    if (!line) throw notFound();
+    orchestrator.stopPreview(line.id);
+    orchestrator.emit('line', orchestrator.publicLine(line));
     res.json({ ok: true });
   }));
 

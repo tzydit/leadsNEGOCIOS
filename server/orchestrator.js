@@ -9,6 +9,7 @@ import { ensureWorktree, getDiff, headCommit, isGitRepo } from './git.js';
 import { buildPrompt, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
 import { detectCli, startProcess, waitForUrl } from './proc.js';
 import { capture as chromeCapture } from './screenshot.js';
+import { findStaticRoot, serveStatic } from './preview.js';
 import { attemptCost, priceFor } from './pricing.js';
 import { CLAUDE_MODELS, CODEX_FALLBACK, loadCodexModels } from './models.js';
 
@@ -36,6 +37,7 @@ export class Orchestrator extends EventEmitter {
     this.models = { claude: { models: CLAUDE_MODELS, source: 'lista' }, codex: { models: [], source: 'nenhum' } };
     this.cli = { claude: { available: false }, codex: { available: false } };
     this.active = new Map(); // lineId -> { kill, stopped }
+    this.previews = new Map(); // lineId -> { url, stop } do site no ar
     this.throttle = new Map();
   }
 
@@ -67,9 +69,10 @@ export class Orchestrator extends EventEmitter {
   // ---- notificações -------------------------------------------------------
 
   publicLine(line) {
-    if (!line.run) return line;
+    const previewUrl = this.previews.get(line.id)?.url ?? null;
+    if (!line.run) return { ...line, previewUrl };
     const { log, ...run } = line.run;
-    return { ...line, run };
+    return { ...line, run, previewUrl };
   }
 
   touch(line, immediate = false) {
@@ -172,11 +175,20 @@ export class Orchestrator extends EventEmitter {
       }
     }
 
-    const preview = await this.startPreview(line, where.dir);
+    let preview = null;
+    try {
+      preview = await this.ensurePreview(line, where.dir);
+    } catch (err) {
+      this.log(line, { kind: 'error', text: `🌐 preview não subiu: ${err.message}` });
+    }
+    let ok = false;
     try {
       await this.runSteps(line, ctl, where);
+      ok = line.run.status === 'done';
     } finally {
-      preview?.stop();
+      // Terminou a última validação: o site fica no ar para você conferir.
+      if (!ok) this.stopPreview(line.id);
+      else if (preview?.url) this.log(line, { kind: 'info', text: `✅ Pronto! Veja como ficou: ${preview.url}` });
     }
   }
 
@@ -191,22 +203,62 @@ export class Orchestrator extends EventEmitter {
     return `node "${this.screenshotScript}" --out "${this.captureDir(line)}"`;
   }
 
-  /** Sobe o site de preview da linha (se houver comando) e espera a URL responder. */
-  async startPreview(line, dir) {
+  /**
+   * Sobe (ou reaproveita) o site da linha: o comando do projeto, a URL que você
+   * já roda, ou um servidor estático em 127.0.0.1 se a pasta tiver index.html.
+   */
+  async ensurePreview(line, dir) {
     const { url, command } = line.preview ?? {};
-    if (!command || !dir) return null;
-    this.log(line, { kind: 'info', text: `🌐 Subindo o site: ${command}` });
-    const proc = startProcess(command, { cwd: dir });
-    if (url) {
-      const ok = await waitForUrl(url, 90000, () => proc.exited);
-      this.log(line, ok ? { kind: 'info', text: `🌐 Site no ar em ${url}` } : { kind: 'error', text: `O site não respondeu em ${url}. ${proc.tail()}` });
+    const key = `${dir}|${command}|${url}`;
+    const cur = this.previews.get(line.id);
+    if (cur && cur.key === key && !cur.proc?.exited) return cur;
+    this.stopPreview(line.id);
+    let p = null;
+    if (command && dir) {
+      this.log(line, { kind: 'info', text: `🌐 Subindo o site: ${command}` });
+      const proc = startProcess(command, { cwd: dir });
+      p = { key, url: url || null, proc, stop: () => proc.stop() };
+      if (url && !(await waitForUrl(url, 90000, () => proc.exited))) {
+        this.log(line, { kind: 'error', text: `O site não respondeu em ${url}. ${proc.tail()}` });
+        proc.stop();
+        return null;
+      }
+    } else if (url) {
+      p = { key, url, stop: () => {} };
+    } else {
+      const root = findStaticRoot(dir);
+      if (!root) return null;
+      const srv = await serveStatic(root);
+      p = { key, url: srv.url, stop: srv.stop };
     }
-    return proc;
+    this.previews.set(line.id, p);
+    if (p.url) this.log(line, { kind: 'info', text: `🌐 Site no ar em ${p.url}` });
+    return p;
+  }
+
+  stopPreview(lineId) {
+    const p = this.previews.get(lineId);
+    if (!p) return false;
+    this.previews.delete(lineId);
+    p.stop();
+    return true;
+  }
+
+  /** Botão "Ver resultado": sobe o preview da última pasta usada pela linha. */
+  async openPreview(lineId) {
+    const line = this.store.lines.find((l) => l.id === lineId);
+    if (!line) throw Object.assign(new Error('Linha não encontrada'), { status: 404 });
+    const base = line.run?.dir || (line.workdir || this.store.settings.defaultWorkdir || '').trim();
+    if (!base) throw new Error('Defina a pasta do projeto');
+    const p = await this.ensurePreview(line, path.resolve(base));
+    if (!p?.url) throw new Error('Nada para abrir: a pasta não tem index.html e a linha não tem URL de preview');
+    this.touch(line, true);
+    return p.url;
   }
 
   /** Captura desktop e celular da URL de preview no Chrome. */
   async captureFor(line, name) {
-    const url = line.preview?.url;
+    const url = this.previews.get(line.id)?.url ?? line.preview?.url;
     if (!url) return { files: [], problems: [], error: null };
     try {
       const r = await this.captureFn({ url, outDir: this.captureDir(line), name, chromePath: this.store.settings.chromePath || undefined });
@@ -265,7 +317,7 @@ export class Orchestrator extends EventEmitter {
       const wantsShots = step.skills.includes('captura-tela');
       const shots = wantsShots ? await this.captureFor(line, `etapa${i + 1}-r${run.round}`) : null;
       if (shots?.files?.length) attempt.captures = shots.files.map((f) => path.basename(f.path));
-      const capture = wantsShots ? { cmd: this.captureCmd(line), url: line.preview?.url, files: shots.files.map((f) => f.path), problems: shots.problems, error: shots.error } : null;
+      const capture = wantsShots ? { cmd: this.captureCmd(line), url: this.previews.get(line.id)?.url ?? line.preview?.url, files: shots.files.map((f) => f.path), problems: shots.problems, error: shots.error } : null;
       const prompt = buildPrompt({ line, step, stepIndex: i, totalSteps: line.steps.length, skills: this.skills, previous, diff, baseCommit: where.base, feedback: step.role === 'executar' ? feedback : null, round: run.round, capture });
       if (step.role === 'executar') feedback = null;
       const chosen = [step.model || settings.workers[step.worker].model || 'modelo padrão', step.effort || settings.workers[step.worker].effort].filter(Boolean).join(' · ');
@@ -405,5 +457,6 @@ export class Orchestrator extends EventEmitter {
       if (ctl.promise) pending.push(ctl.promise);
     }
     await Promise.allSettled(pending);
+    for (const id of [...this.previews.keys()]) this.stopPreview(id);
   }
 }

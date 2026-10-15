@@ -88,6 +88,12 @@ function handle(msg) {
     if (i < 0) return;
     const prevStatus = S.data.lines[i].run?.status;
     S.data.lines[i] = msg.line;
+    if (prevStatus === 'running' && msg.line.run?.status === 'done' && msg.line.previewUrl) {
+      // última validação concluída: o site fica no ar para conferir
+      const w = window.open(msg.line.previewUrl, '_blank');
+      if (w) w.opener = null;
+      toast(`✅ ${msg.line.name} pronta — 🌐 Ver resultado: ${msg.line.previewUrl}`);
+    }
     if (msg.running) S.data.running = new Set(msg.running);
     if (msg.line.run?.status !== prevStatus && msg.line.run?.status === 'running') S.logs.set(msg.line.id, []);
     if (!isEditing(msg.line.id)) S.drafts.delete(msg.line.id);
@@ -182,8 +188,8 @@ function renderWorkers() {
     mode.textContent = info.mode;
     mode.title = info.mode === 'simulado' ? 'CLI não encontrado ou modo simulado: nada é executado de verdade' : 'Executando o CLI de verdade';
     const meta = chip.querySelector('.wmeta');
-    meta.title = busy ? `trabalhando em ${busy} sala(s)` : 'na copa';
-    meta.textContent = `${busy ? `▶ ${busy} sala${busy > 1 ? 's' : ''}` : 'na copa'} · ${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}`;
+    meta.title = busy ? `trabalhando em ${busy} linha(s)` : 'na copa';
+    meta.textContent = `${busy ? `▶ ${busy} linha${busy > 1 ? 's' : ''}` : 'na copa'} · ${fmt(st.input + st.output + runningAttempts(w).reduce((a, r) => a + total(r.a.usage), 0))} tokens · hoje ${fmtUsd(todayCost(w))}`;
     // Recria as opções só quando mudam e o usuário não está mexendo nelas.
     const cfg = S.data.settings.workers[w];
     const ms = chip.querySelector('[data-chip-model]');
@@ -273,6 +279,9 @@ function renderHead(line) {
         ? `<button class="btn stop" data-act="stop">■ Parar</button>`
         : `<button class="btn go" data-act="run">▶ Rodar linha</button>`}
       <span class="grow">${running && cur ? `${esc(wname(cur.worker))} · etapa ${cur.step + 1} · ${esc(cur.activity || '')}` : line.run?.endedAt ? `Última execução: ${new Date(line.run.endedAt).toLocaleString('pt-BR')}` : 'Ainda não rodou'}</span>
+      ${!running && line.previewUrl
+        ? `<a class="btn small view" href="${esc(line.previewUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(line.previewUrl)}">🌐 Ver resultado</a><button class="icon-btn small" data-act="preview-stop" aria-label="Desligar o site" title="Desligar o site"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>`
+        : !running && line.run ? `<button class="btn small" data-act="preview" title="Sobe o site da pasta da linha e abre numa aba">🌐 Ver resultado</button>` : ''}
       <button class="btn ghost small" data-act="delete" ${running ? 'disabled' : ''} title="Remover linha">Remover</button>
     </div>`;
 }
@@ -283,7 +292,7 @@ function welcomeHtml() {
     <h3>Bem-vindo ao escritório</h3>
     ${sim.length ? `<div class="notice">${esc(sim.join(' e '))} em <b>modo simulado</b>: o CLI não foi encontrado (ou foi forçado nas configurações). Dá para testar tudo; nada é executado de verdade.</div>` : ''}
     <ol>
-      <li>Cada <b>sala</b> é uma <b>linha de trabalho</b>. Crie uma com <b>+ Nova linha</b> (escolha um modelo) ou clicando na sala vazia.</li>
+      <li>Crie uma <b>linha de trabalho</b> com <b>+ Nova linha</b>. As salas são por tipo de trabalho (desenvolvimento, revisão, segurança, planejamento) e as linhas dividem as mesas.</li>
       <li>Em cada <b>etapa</b>, escolha quem trabalha (Claude ou Codex), o papel (executar, revisar, auditar…) e escreva <b>o que ele deve fazer</b>.</li>
       <li>Com <b>Ciclo de revisão</b> ligado, se o revisor pedir mudanças o trabalho volta para quem executou.</li>
       <li>Linhas diferentes rodam <b>ao mesmo tempo</b>, cada uma no seu git worktree.</li>
@@ -745,6 +754,21 @@ function wirePanel() {
       renderPanel();
     } else if (act === 'stop') {
       await api('POST', `/api/lines/${id}/stop`);
+    } else if (act === 'preview') {
+      // abre a aba já no clique (senão o navegador bloqueia) e depois aponta para o site
+      const w = window.open('', '_blank');
+      try {
+        const { url } = await api('POST', `/api/lines/${id}/preview`);
+        if (w) {
+          w.opener = null;
+          w.location.href = url;
+        }
+      } catch (err) {
+        w?.close();
+        throw err;
+      }
+    } else if (act === 'preview-stop') {
+      await api('DELETE', `/api/lines/${id}/preview`);
     } else if (act === 'delete') {
       if (!confirm('Remover esta linha? (o worktree e o branch no git continuam existindo)')) return;
       clearTimeout(S.saveTimers.get(id));
@@ -1295,7 +1319,7 @@ function drawBrand() {
 
 const office = new Office($('#office'), {
   onLine: (id) => selectLine(id, { focus: false }),
-  onNew: createLine,
+  onRoom: (room) => toast(`${room.title}: nenhuma linha trabalhando aqui agora`),
   onSkills: () => openModal('Biblioteca de Skills', skillsHtml()),
   onCopa: () => openModal('Comparativo Claude × Codex', compareHtml()),
 });

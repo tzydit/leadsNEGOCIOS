@@ -403,3 +403,5 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--line-strong); }
   .feed-row .fl, .feed-row .fw { display: none; }
   .grid { grid-template-columns: 1fr; }
 }
+a.btn.view { text-decoration: none; color: #bfe6b4; border-color: rgba(124, 201, 106, .45); white-space: nowrap; }
+a.btn.view:hover { background: rgba(124, 201, 106, .14); }

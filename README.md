@@ -1,13 +1,16 @@
 # 🏢 AI Office
 
 Um escritório em pixel art onde o **Claude Code** e o **Codex** trabalham juntos no seu projeto.
-Cada **sala** é uma **linha de trabalho**: você escreve o que cada IA deve fazer em cada etapa
-(ex.: *linha 1: o Claude implementa, o Codex revisa*). Os avatares andam até a mesa, trabalham, e você acompanha ao vivo.
+Você monta **linhas de trabalho** e escreve o que cada IA deve fazer em cada etapa
+(ex.: *linha 1: o Claude implementa, o Codex revisa*). O prédio tem **uma sala por tipo de trabalho**
+(🛠 Desenvolvimento, 🔍 Revisão, 🛡 Segurança, 🧭 Planejamento): os avatares andam até uma mesa livre da sala
+do papel da etapa, com o nome da linha no crachá, e você acompanha ao vivo.
 
 - **Linhas em paralelo**: cada linha roda no seu próprio `git worktree`, então as duas IAs trabalham ao mesmo tempo sem se atropelar.
 - **Ciclo de revisão**: se o revisor responder `VEREDITO: MUDANCAS_NECESSARIAS`, o trabalho volta para quem executou junto com os apontamentos, até N rodadas.
 - **Skills de desenvolvimento web e segurança** ativadas por etapa (economia de tokens, revisão fria, auditoria OWASP, análise do projeto…).
 - **Economia de tokens**: a próxima IA recebe só o `RESUMO` da anterior e o diff (truncado), nunca a conversa inteira. Há orçamento de tokens por linha.
+- **Site no ar no fim**: terminada a última validação, o site da linha fica rodando e abre numa aba (**🌐 Ver resultado**).
 - **Comparativo Claude × Codex**: tokens por etapa, uso de cache, tempo, taxa de aprovação na revisão e custo.
 
 ### Como é a tela
@@ -40,15 +43,16 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 ## Usando
 
 1. Em ⚙ **Configurações**, defina a **pasta padrão do projeto** (ou uma pasta por linha) com o botão **📁 Escolher**: navegue pelas suas pastas (repositórios git aparecem marcados) ou abra a janela de pastas do próprio Windows/macOS/Linux.
-2. Escolha um modelo e clique em **+ Nova linha**, ou clique na sala vazia do escritório:
+2. Clique em **+ Nova linha** e, dentro dela, em **Aplicar modelo…**:
    - Claude faz → Codex revisa
    - Codex faz → Claude revisa
    - Claude planeja → Codex faz → Claude revisa
    - Auditoria de segurança cruzada
    - Análise fria do projeto
-3. Na sala, ajuste as **etapas**: quem trabalha, o papel e **o que ele deve fazer**. Ligue ou desligue as skills.
+3. Na linha, ajuste as **etapas**: quem trabalha, o papel e **o que ele deve fazer**. Ligue ou desligue as skills.
 4. Clique em **▶ Rodar linha**. Acompanhe em **Ao vivo**, veja o **Diff** e o consumo em **Tokens**.
-5. Gostou do resultado? As mudanças ficam no branch `ai-office/<id-da-linha>`. Basta `git merge` no seu projeto.
+5. Ao terminar, o site sobe sozinho e abre numa aba para você conferir (veja abaixo). O botão **🌐 Ver resultado** reabre; o **✕** ao lado desliga.
+6. Gostou do resultado? As mudanças ficam no branch `ai-office/<id-da-linha>`. Basta `git merge` no seu projeto.
 
 | Papel | O que faz | Permissões |
 |---|---|---|
@@ -57,6 +61,16 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 | Auditar segurança | procura vulnerabilidades exploráveis e dá veredito | somente leitura |
 | Planejar | escreve um plano para a próxima IA | somente leitura |
 | Análise fria | diagnóstico do projeto inteiro | somente leitura |
+
+## Ver o resultado no navegador
+
+Quando a linha termina (depois da última revisão), o AI Office deixa o site no ar e abre uma aba:
+
+- com **Comando para subir o site** preenchido, ele roda o comando na pasta da linha e espera o **Site de preview** responder;
+- só com o **Site de preview**, usa essa URL (o servidor é seu);
+- sem nada, se a pasta tiver `index.html` (na raiz, `dist/`, `build/` ou `public/`), sobe um servidor estático em `127.0.0.1` numa porta livre, que não mostra arquivos ocultos como `.env` e `.git`.
+
+O site fica no ar até você clicar no **✕**, rodar a linha de novo com outra configuração, remover a linha ou fechar o AI Office. Se a linha falhar ou for parada, ele é desligado. Se o navegador bloquear a aba automática, use o botão **🌐 Ver resultado**.
 
 ## Capturas de tela no Chrome (front-end)
 
@@ -82,7 +96,7 @@ Permissões: no Claude, só esse comando de captura é liberado (nada de `node` 
 
 ## Custos em tempo real
 
-No topo do escritório: **agora** (o que as etapas em andamento já gastaram, subindo ao vivo), **hoje** e o gasto real das contas, se configurado. Cada sala mostra quanto a linha custou. Clique no painel de custos para ver o detalhe por dia.
+No topo do escritório: **agora** (o que as etapas em andamento já gastaram, subindo ao vivo), **hoje**, **💰 economizado** (tokens poupados pelo cache e pelo repasse só do resumo) e o gasto real das contas, se configurado. Cada linha mostra quanto custou. Clique no painel de custos para ver o detalhe por dia.
 
 - **Claude**: durante a etapa o valor é estimado pela tabela de preços; ao terminar, vale o custo exato informado pelo Claude Code.
 - **Codex**: o CLI não informa preço, então vale a estimativa pela tabela de preços (aparece com `≈`).
@@ -150,7 +164,7 @@ npm run skills:global -- --uninstall             # remove só o que o AI Office 
 
 ### Skills do GitHub para economizar tokens
 
-Duas opções conhecidas e de licença aberta (Apache-2.0) que funcionam no Claude Code **e** no Codex. Elas não vêm embutidas aqui: revise e instale direto do projeto oficial.
+Duas opções conhecidas e de licença aberta (Apache-2.0) que funcionam no Claude Code **e** no Codex. O **caveman** já vem embutido (cópia revisada, só texto) e fica **sempre ligado no Claude** dentro do AI Office; desligue ou ligue no Codex em ⚙ Configurações. Para usar fora do AI Office, instale direto do projeto oficial:
 
 | Projeto | O que economiza | Instalação global |
 |---|---|---|
@@ -162,7 +176,8 @@ Expectativa realista: o caveman anuncia de 65% a 75% menos tokens de saída por 
 ## Dicas para gastar menos tokens
 
 - Cada chamada do Claude Code já começa com cerca de 38 mil tokens de entrada (prompt do sistema e ferramentas), a maior parte vinda do cache. **Menos etapas = menos custo fixo.** Junte instruções pequenas numa etapa só.
-- Se você tem muitos servidores MCP configurados, coloque `--strict-mcp-config` em *Argumentos extras* do Claude para não carregá-los nas etapas.
+- Os servidores MCP do seu Claude **não** são carregados nas etapas (`--strict-mcp-config`): economiza contexto e evita pedidos de permissão como o do `chrome-devtools`. Para carregar, marque *Carregar MCPs* em ⚙ Configurações.
+- O executor do Claude já tem liberados comandos de leitura e teste (`git status/diff`, `grep`, `node --check`, `npm test`… em Bash e PowerShell). As IAs são orientadas a rodar um comando por vez, sem `&&` ou `;`, porque comandos encadeados pedem aprovação.
 - Use modelos menores na revisão (campo **Modelo** da etapa) e reserve o maior para executar.
 - Defina um **orçamento de tokens** na linha: ao estourar, a etapa é interrompida.
 - Diminua *Máx. caracteres de diff* nas configurações. O revisor ainda pode rodar `git diff` em arquivos específicos se precisar.

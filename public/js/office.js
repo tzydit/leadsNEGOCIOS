@@ -1,16 +1,18 @@
 import { SIT_H, STAND_H, WORKER_STYLE, sprite } from './sprites.js';
 
 // ---- geometria do mundo (pixels lógicos) -----------------------------------
-const RW = 208; // largura de uma sala
+const RW = 208; // largura da copa e da biblioteca
+const WRW = 256; // largura de uma sala de trabalho (4 mesas)
 const RH = 152; // altura de uma sala
 const CH = 56; // corredor
 const MX = 128; // gramado nas laterais
 const MT = 88; // gramado em cima
 const WALL = 30; // parede do fundo
-const DOOR_X = 104; // porta no meio da sala
-const DOOR_W = 28;
+const DOOR_W = 28; // a porta fica no meio da sala
 const AISLE = 122; // linha de circulação dentro da sala (y local)
-const DESK_X = { claude: 22, codex: 122 }; // início de cada estação de trabalho
+const DESKS = [14, 74, 134, 194]; // início de cada mesa (x local)
+const DESK_W = 52;
+const CHAIR_DX = 37; // cadeira em relação ao início da mesa
 const DESK_Y = 66; // borda de trás do tampo
 const SEAT_Y = 56; // onde o personagem para atrás da mesa
 const SPEED = 80;
@@ -25,6 +27,16 @@ const WALK_Y = HEDGE_Y + 22;
 const ROAD_Y = WALK_Y + 26;
 const ROAD_H = 46;
 const WORLD_H = ROAD_Y + ROAD_H + 22 + 46;
+
+// Uma sala por tipo de trabalho; as linhas dividem as mesas.
+const WORK_ROOMS = [
+  { kind: 'dev', col: 1, row: 0, title: 'Desenvolvimento', icon: '🛠', roles: ['executar'], carpet: ['#c8d3e0', '#d9e2ec'] },
+  { kind: 'review', col: 1, row: 1, title: 'Revisão', icon: '🔍', roles: ['revisar'], carpet: ['#d6cde6', '#e5ddf0'] },
+  { kind: 'security', col: 2, row: 0, title: 'Segurança', icon: '🛡', roles: ['auditar'], carpet: ['#e3cccc', '#efdcdc'] },
+  { kind: 'plan', col: 2, row: 1, title: 'Planejamento', icon: '🧭', roles: ['planejar', 'analisar'], carpet: ['#d0e0c8', '#e0ecd9'] },
+];
+const ROOM_OF_ROLE = Object.fromEntries(WORK_ROOMS.flatMap((r) => r.roles.map((role) => [role, r.kind])));
+const COL_W = [RW, WRW, WRW];
 
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4];
 
@@ -154,13 +166,9 @@ export class Office {
   // ---- dados --------------------------------------------------------------
 
   setData({ lines, skills }) {
-    const sig = JSON.stringify(lines.map((l) => [l.id, [...new Set(l.steps.map((s) => s.worker))].sort()]));
     this.lines = lines;
     this.skills = skills ?? [];
-    if (sig !== this.layoutSig) {
-      this.layoutSig = sig;
-      this.layout();
-    }
+    if (!this.rooms.length) this.layout();
     this.syncAvatars();
   }
 
@@ -176,28 +184,23 @@ export class Office {
     const rooms = [
       { kind: 'copa', col: 0, row: 0, title: 'Copa' },
       { kind: 'skills', col: 0, row: 1, title: 'Biblioteca de Skills' },
+      ...WORK_ROOMS.map((r) => ({ ...r, work: true })),
     ];
-    this.lines.forEach((line, i) => {
-      rooms.push({ kind: 'line', col: 1 + Math.floor(i / 2), row: i % 2, lineId: line.id, workers: [...new Set(line.steps.map((s) => s.worker))] });
-    });
-    const n = this.lines.length;
-    rooms.push({ kind: 'new', col: 1 + Math.floor(n / 2), row: n % 2, title: 'Nova linha' });
+    this.colX = COL_W.map((_, i) => BX + COL_W.slice(0, i).reduce((a, b) => a + b, 0));
     for (const r of rooms) {
-      r.x = BX + r.col * RW;
+      r.x = this.colX[r.col];
       r.y = r.row === 0 ? BY : BY + RH + CH;
-      r.w = RW;
+      r.w = COL_W[r.col];
       r.h = RH;
     }
     this.rooms = rooms;
-    this.cols = Math.max(2, Math.max(...rooms.map((r) => r.col)) + 1);
-    this.buildW = this.cols * RW;
+    this.buildW = COL_W.reduce((a, b) => a + b, 0);
     this.worldW = BX + this.buildW + MX;
     this.world.width = this.worldW;
     this.world.height = WORLD_H;
     this.staticLayer.width = this.worldW;
     this.staticLayer.height = WORLD_H;
     this.staticDirty = true;
-    for (const a of this.avatars) a.path = [];
     if (!this.userMoved) this.fit();
   }
 
@@ -239,11 +242,13 @@ export class Office {
     this.clampCam();
   }
 
+  /** Vai até a sala onde a linha está trabalhando (ou onde vai começar). */
   focusLine(id) {
-    const r = this.rooms.find((x) => x.lineId === id);
+    const line = this.lines.find((l) => l.id === id);
+    const r = this.roomOfLine(id) ?? this.rooms.find((x) => x.kind === ROOM_OF_ROLE[line?.steps[0]?.role]);
     if (!r) return;
     const v = this.view();
-    const ideal = Math.min(v.w / (RW + 40), v.h / (RH + 60));
+    const ideal = Math.min(v.w / (r.w + 40), v.h / (RH + 60));
     const z = [...ZOOMS].reverse().find((k) => k <= ideal) ?? ZOOMS[0];
     if (this.cam.z < z) this.cam.z = z;
     this.centerOn(r.x + r.w / 2, r.y + r.h / 2);
@@ -289,7 +294,9 @@ export class Office {
       const r = line.run;
       if (!r || r.status !== 'running') continue;
       const a = r.attempts?.[r.attempts.length - 1];
-      if (a && a.status === 'running') out.push({ key: `${line.id}:${a.worker}`, lineId: line.id, worker: a.worker, activity: a.activity, role: a.role });
+      if (a && a.status === 'running') {
+        out.push({ key: `${line.id}:${a.worker}`, lineId: line.id, lineName: line.name, worker: a.worker, activity: a.activity, role: a.role, room: ROOM_OF_ROLE[a.role] ?? 'dev' });
+      }
     }
     return out;
   }
@@ -300,6 +307,19 @@ export class Office {
     }
     const wanted = this.assignments();
     const wantedKeys = new Set(wanted.map((a) => a.key));
+    // Cada linha ativa ocupa uma mesa livre da sala do papel atual.
+    this.desks ??= new Map();
+    for (const k of [...this.desks.keys()]) if (!wantedKeys.has(k)) this.desks.delete(k);
+    for (const want of wanted) {
+      if (this.desks.get(want.key)?.room !== want.room) {
+        const used = new Set([...this.desks.values()].filter((d) => d.room === want.room).map((d) => d.idx));
+        let idx = 0;
+        while (used.has(idx)) idx++;
+        this.desks.set(want.key, { room: want.room, idx });
+      }
+      want.desk = this.desks.get(want.key).idx;
+    }
+    this.current = wanted;
     for (const a of this.avatars) if (a.assign && !wantedKeys.has(a.assign.key)) a.assign = null;
     for (const want of wanted) {
       let av = this.avatars.find((a) => a.assign?.key === want.key);
@@ -340,42 +360,46 @@ export class Office {
   targetOf(a) {
     if (a.leaving) return { loc: 'exit', x: BX - 40, y: COR_Y };
     if (a.assign) {
-      const room = this.roomOfLine(a.assign.lineId);
-      if (room) return { loc: room.lineId, room, x: room.x + DESK_X[a.worker] + 40, y: room.y + SEAT_Y, seat: true };
+      const room = this.rooms.find((r) => r.kind === a.assign.room);
+      const i = a.assign.desk;
+      if (room) return { loc: `${room.kind}:${i}`, room, x: room.x + DESKS[i % DESKS.length] + CHAIR_DX, y: room.y + SEAT_Y, seat: true };
     }
     const copa = this.rooms.find((r) => r.kind === 'copa');
     const s = this.copaSpot(a);
     return { loc: 'copa', room: copa, x: s.x, y: s.y };
   }
 
+  /** Sala onde a linha está trabalhando agora. */
   roomOfLine(id) {
-    return this.rooms.find((r) => r.kind === 'line' && r.lineId === id);
+    const a = this.current?.find((x) => x.lineId === id);
+    return a ? this.rooms.find((r) => r.kind === a.room) : null;
   }
 
   roomByLoc(loc) {
-    if (loc === 'copa') return this.rooms.find((r) => r.kind === 'copa');
-    return this.roomOfLine(loc);
+    const kind = String(loc ?? '').split(':')[0];
+    return this.rooms.find((r) => r.kind === kind);
   }
 
-  /** Caminho: sai pela porta, anda no corredor, entra e contorna a mesa até a cadeira. */
+  /** Caminho: sai pela porta, anda no corredor, entra pela lateral e vai até a cadeira. */
   planPath(a, target) {
     const pts = [];
+    const lane = (r, x) => (x < r.x + r.w / 2 ? r.x + 7 : r.x + r.w - 7);
     const from = this.roomByLoc(a.loc);
     if (from) {
       if (a.y < from.y + DESK_Y + 20) {
-        // está atrás de uma mesa: sai pela lateral da estação
-        const side = a.x < from.x + RW / 2 ? from.x + 10 : from.x + RW - 12;
+        // está atrás das mesas: sai pela lateral da sala
+        const side = lane(from, a.x);
         pts.push({ x: side, y: a.y }, { x: side, y: from.y + AISLE });
       } else pts.push({ x: a.x, y: from.y + AISLE });
-      pts.push({ x: from.x + DOOR_X, y: from.y + AISLE }, { x: from.x + DOOR_X, y: COR_Y });
+      pts.push({ x: from.x + from.w / 2, y: from.y + AISLE }, { x: from.x + from.w / 2, y: COR_Y });
     } else {
       pts.push({ x: a.x, y: COR_Y });
     }
     const to = target.room;
     if (to) {
-      pts.push({ x: to.x + DOOR_X, y: COR_Y }, { x: to.x + DOOR_X, y: to.y + AISLE });
+      pts.push({ x: to.x + to.w / 2, y: COR_Y }, { x: to.x + to.w / 2, y: to.y + AISLE });
       if (target.seat) {
-        const side = target.x < to.x + RW / 2 ? to.x + 10 : to.x + RW - 12;
+        const side = lane(to, target.x);
         pts.push({ x: side, y: to.y + AISLE }, { x: side, y: target.y }, { x: target.x, y: target.y });
       } else {
         pts.push({ x: target.x, y: to.y + AISLE }, { x: target.x, y: target.y });
@@ -471,9 +495,13 @@ export class Office {
     const h = this.hit(this.toWorld(e));
     if (!h) return;
     const room = h.room;
-    if (h.type === 'avatar' || room?.kind === 'line') this.h.onLine?.(room.lineId, h.avatar?.worker);
-    else if (room?.kind === 'new') this.h.onNew?.();
-    else if (room?.kind === 'skills') this.h.onSkills?.();
+    if (h.type === 'avatar') this.h.onLine?.(h.avatar.assign.lineId, h.avatar.worker);
+    else if (room?.work) {
+      // sala de trabalho: abre a primeira linha que está trabalhando nela
+      const act = this.current?.find((a) => a.room === room.kind);
+      if (act) this.h.onLine?.(act.lineId, act.worker);
+      else this.h.onRoom?.(room);
+    } else if (room?.kind === 'skills') this.h.onSkills?.();
     else if (room?.kind === 'copa') this.h.onCopa?.();
   }
 
@@ -535,15 +563,11 @@ export class Office {
     this.drawBuildingShadow(g);
     this.drawCorridor(g);
     for (const r of this.rooms) {
-      if (r.kind === 'new') {
-        this.drawEmptyRoom(g, r);
-        continue;
-      }
       this.drawFloor(g, r);
       this.drawWalls(g, r);
       if (r.kind === 'copa') this.drawCopa(g, r);
       if (r.kind === 'skills') this.drawLibrary(g, r);
-      if (r.kind === 'line') this.drawLineRoom(g, r);
+      if (r.work) this.drawWorkRoom(g, r);
     }
     this.drawOuterWall(g);
   }
@@ -662,13 +686,14 @@ export class Office {
     for (let x = BX; x < BX + this.buildW; x += 16) {
       for (let yy = y; yy < y + CH; yy += 16) R(g, x, yy, 16, 16, ((x - BX + yy) / 16) % 2 ? C.corridor1 : C.corridor2);
     }
-    for (let c = 0; c < this.cols; c++) {
-      const rx = BX + c * RW;
-      R(g, rx + 22, COR_Y - 6, RW - 44, 12, C.runner);
-      R(g, rx + 24, COR_Y - 4, RW - 48, 8, '#a9aeb8');
+    for (let c = 0; c < COL_W.length; c++) {
+      const rx = this.colX[c];
+      const cw = COL_W[c];
+      R(g, rx + 22, COR_Y - 6, cw - 44, 12, C.runner);
+      R(g, rx + 24, COR_Y - 4, cw - 48, 8, '#a9aeb8');
       if (c % 2 === 0) {
-        R(g, rx + 150, y + 4, 34, 7, '#8a6a4a');
-        R(g, rx + 151, y + 4, 32, 3, '#a5825e');
+        R(g, rx + cw - 58, y + 4, 34, 7, '#8a6a4a');
+        R(g, rx + cw - 57, y + 4, 32, 3, '#a5825e');
       }
       if (c > 0) this.plant(g, rx + 8, y + CH - 4, 0.8);
     }
@@ -712,35 +737,17 @@ export class Office {
       // parede de baixo, com porta para o corredor
       R(g, x, y + r.h - 4, r.w, 4, C.partition);
       R(g, x, y + r.h - 1, r.w, 1, C.partitionDark);
-      this.floorPatch(g, r, x + DOOR_X - DOOR_W / 2, y + r.h - 4, DOOR_W, 4);
+      this.floorPatch(g, r, x + r.w / 2 - DOOR_W / 2, y + r.h - 4, DOOR_W, 4);
     } else {
       // porta na parede do fundo, que dá para o corredor
-      this.floorPatch(g, r, x + DOOR_X - DOOR_W / 2, y, DOOR_W, WALL);
-      R(g, x + DOOR_X - DOOR_W / 2 - 2, y, 2, WALL, C.baseboard);
-      R(g, x + DOOR_X + DOOR_W / 2, y, 2, WALL, C.baseboard);
+      this.floorPatch(g, r, x + r.w / 2 - DOOR_W / 2, y, DOOR_W, WALL);
+      R(g, x + r.w / 2 - DOOR_W / 2 - 2, y, 2, WALL, C.baseboard);
+      R(g, x + r.w / 2 + DOOR_W / 2, y, 2, WALL, C.baseboard);
     }
   }
 
   floorPatch(g, r, x, y, w, h) {
     R(g, x, y, w, h, r.kind === 'copa' ? C.copa2 : r.kind === 'skills' ? C.wood2 : C.tile1);
-  }
-
-  drawEmptyRoom(g, r) {
-    R(g, r.x, r.y, r.w, r.h, '#cfc9bd');
-    for (let i = 0; i < r.w; i += 16) for (let j = 0; j < r.h; j += 16) R(g, r.x + i, r.y + j, 16, 1, '#c3bcae');
-    g.fillStyle = 'rgba(80,74,64,.45)';
-    for (let i = r.x + 6; i < r.x + r.w - 6; i += 8) {
-      g.fillRect(i, r.y + 6, 4, 1);
-      g.fillRect(i, r.y + r.h - 7, 4, 1);
-    }
-    for (let j = r.y + 6; j < r.y + r.h - 6; j += 8) {
-      g.fillRect(r.x + 6, j, 1, 4);
-      g.fillRect(r.x + r.w - 7, j, 1, 4);
-    }
-    const cx = r.x + r.w / 2;
-    const cy = r.y + r.h / 2;
-    R(g, cx - 10, cy - 2, 20, 4, 'rgba(80,74,64,.55)');
-    R(g, cx - 2, cy - 10, 4, 20, 'rgba(80,74,64,.55)');
   }
 
   plant(g, x, y, s = 1) {
@@ -846,11 +853,12 @@ export class Office {
     this.plant(g, x + 194, y + 146);
   }
 
-  drawLineRoom(g, r) {
-    const { x, y } = r;
+  drawWorkRoom(g, r) {
+    const { x, y, w } = r;
     if (r.row === 0) {
       this.windowOnWall(g, x + 14, y, 36);
       this.windowOnWall(g, x + 58, y, 36);
+      this.clock(g, x + 140, y + 7);
     } else {
       // pôsteres na parede do corredor (a porta fica no meio)
       R(g, x + 22, y + 6, 18, 18, '#2d2f38');
@@ -860,69 +868,73 @@ export class Office {
       R(g, x + 50, y + 8, 14, 14, '#5fb0ff');
       R(g, x + 54, y + 14, 6, 6, '#f4f1e8');
     }
-    // quadro branco (as etapas aparecem nele)
-    R(g, x + 130, y + 4, 70, 22, '#9aa0b4');
-    R(g, x + 132, y + 6, 66, 18, '#fbfaf6');
-    R(g, x + 134, y + 25, 60, 2, '#7d8398');
-    if (r.row === 0) this.clock(g, x + 112, y + 7);
-    // tapete
-    R(g, x + 44, y + 98, 120, 38, '#c8d3e0');
-    R(g, x + 47, y + 101, 114, 32, '#d9e2ec');
-    for (const w of ['claude', 'codex']) if (r.workers.includes(w)) this.drawDesk(g, x + DESK_X[w], y, w);
-    // estante, luminária e plantas
-    R(g, x + 186, y + 34, 16, 26, '#8a6a4a');
-    for (let i = 0; i < 3; i++) R(g, x + 188, y + 36 + i * 8, 12, 6, ['#d9576b', '#5fb0ff', '#7cc96a'][i]);
-    R(g, x + 8, y + 106, 3, 26, '#3b3d48');
-    R(g, x + 3, y + 100, 13, 7, '#ffe08a');
-    this.plant(g, x + 14, y + 146);
-    this.plant(g, x + 194, y + 146);
+    // quadro com o tema da sala
+    const bx = x + w - 84;
+    R(g, bx, y + 4, 72, 22, '#9aa0b4');
+    R(g, bx + 2, y + 6, 68, 18, r.kind === 'security' ? '#2b2f3b' : '#fbfaf6');
+    R(g, bx + 4, y + 25, 62, 2, '#7d8398');
+    if (r.kind === 'dev') {
+      [30, 44, 22, 38].forEach((len, i) => R(g, bx + 6 + (i % 2) * 4, y + 8 + i * 4, len, 2, ['#e07a4f', '#5fb0ff', '#7cc96a', '#8b93ad'][i]));
+    } else if (r.kind === 'review') {
+      for (let i = 0; i < 3; i++) {
+        R(g, bx + 6, y + 9 + i * 5, 3, 3, i === 2 ? '#c9871a' : '#2f8f3a');
+        R(g, bx + 12, y + 10 + i * 5, 44 - i * 8, 1, '#8b93ad');
+      }
+    } else if (r.kind === 'security') {
+      R(g, bx + 32, y + 9, 8, 6, '#9aa0b4');
+      R(g, bx + 34, y + 11, 4, 4, '#2b2f3b');
+      R(g, bx + 30, y + 14, 12, 8, '#e9b949');
+      R(g, bx + 35, y + 16, 2, 3, '#7a5a1a');
+    } else {
+      for (let i = 0; i < 6; i++) R(g, bx + 5 + (i % 3) * 21, y + 8 + Math.floor(i / 3) * 8, 17, 6, ['#ffe08a', '#ffb3c1', '#b3e0ff'][i % 3]);
+    }
+    // tapete na cor da sala
+    R(g, x + 40, y + 98, w - 80, 38, r.carpet[0]);
+    R(g, x + 43, y + 101, w - 86, 32, r.carpet[1]);
+    for (const dx of DESKS) this.drawDesk(g, x + dx, y);
+    this.plant(g, x + 22, y + 146);
+    this.plant(g, x + w - 22, y + 146);
   }
 
-  drawDesk(g, x, y, worker) {
+  drawDesk(g, x, y) {
     const top = y + DESK_Y;
-    R(g, x, top, 64, 18, C.desk);
-    R(g, x, top, 64, 2, '#f3dcb5');
-    R(g, x, top + 16, 64, 2, C.deskEdge);
-    R(g, x + 1, top + 18, 62, 7, C.deskFront);
-    R(g, x + 4, top + 20, 22, 3, '#a27d4d');
-    R(g, x + 38, top + 20, 22, 3, '#a27d4d');
+    R(g, x, top, DESK_W, 18, C.desk);
+    R(g, x, top, DESK_W, 2, '#f3dcb5');
+    R(g, x, top + 16, DESK_W, 2, C.deskEdge);
+    R(g, x + 1, top + 18, DESK_W - 2, 7, C.deskFront);
+    R(g, x + 4, top + 20, 16, 3, '#a27d4d');
+    R(g, x + 32, top + 20, 16, 3, '#a27d4d');
     R(g, x + 2, top + 25, 3, 4, '#7a5a37');
-    R(g, x + 59, top + 25, 3, 4, '#7a5a37');
+    R(g, x + DESK_W - 5, top + 25, 3, 4, '#7a5a37');
     // monitor à esquerda da estação, tela virada para quem olha
-    R(g, x + 4, top - 14, 26, 18, C.monitor);
-    R(g, x + 6, top - 12, 22, 13, C.screenOff);
-    R(g, x + 15, top + 4, 4, 3, C.monitor);
-    // teclado, caneca e plaquinha com a cor do trabalhador
-    R(g, x + 32, top + 6, 18, 5, '#d4d8e0');
-    R(g, x + 33, top + 7, 16, 1, '#b3b8c3');
-    R(g, x + 54, top + 4, 5, 6, '#f4efe2');
-    R(g, x + 26, top + 19, 12, 3, WORKER_STYLE[worker].color);
+    R(g, x + 3, top - 14, 24, 18, C.monitor);
+    R(g, x + 5, top - 12, 20, 13, C.screenOff);
+    R(g, x + 13, top + 4, 4, 3, C.monitor);
+    // teclado e caneca
+    R(g, x + 29, top + 6, 16, 5, '#d4d8e0');
+    R(g, x + 30, top + 7, 14, 1, '#b3b8c3');
+    R(g, x + 46, top + 4, 4, 6, '#f4efe2');
   }
 
   // ---- camada dinâmica ----------------------------------------------------
 
   drawDynamic(g) {
     const t = this.t;
-    for (const r of this.rooms) {
-      if (r.kind !== 'line') continue;
-      const line = this.lines.find((l) => l.id === r.lineId);
-      if (line) this.drawBoard(g, r, line);
-    }
     const seated = new Map();
-    for (const a of this.avatars) if (a.seated && a.assign) seated.set(`${a.assign.lineId}:${a.worker}`, a);
+    for (const a of this.avatars) if (a.seated && a.assign) seated.set(`${a.assign.room}:${a.assign.desk % DESKS.length}`, a);
     for (const r of this.rooms) {
-      if (r.kind !== 'line') continue;
-      for (const w of r.workers) {
-        const dx = r.x + DESK_X[w];
-        const cx = dx + 40;
-        const a = seated.get(`${r.lineId}:${w}`);
+      if (!r.work) continue;
+      DESKS.forEach((dx0, i) => {
+        const dx = r.x + dx0;
+        const cx = dx + CHAIR_DX;
+        const a = seated.get(`${r.kind}:${i}`);
         this.drawChair(g, cx, r.y, Boolean(a));
-        if (a) {
-          this.drawScreen(g, dx, r.y, w, t + a.phase);
-          const img = sprite(w, Math.floor((t + a.phase) * 6) % 2 ? 'sitA' : 'sitB');
-          g.drawImage(img, Math.round(cx - img.width / 2), r.y + DESK_Y + 5 - img.height);
-        }
-      }
+        if (!a) return;
+        this.drawScreen(g, dx, r.y, a.worker, t + a.phase);
+        R(g, dx + 20, r.y + DESK_Y + 19, 12, 3, WORKER_STYLE[a.worker].color); // plaquinha
+        const img = sprite(a.worker, Math.floor((t + a.phase) * 6) % 2 ? 'sitA' : 'sitB');
+        g.drawImage(img, Math.round(cx - img.width / 2), r.y + DESK_Y + 5 - img.height);
+      });
     }
     // quem está em pé ou andando, por ordem de profundidade
     const standing = this.avatars.filter((a) => !a.seated).sort((p, q) => p.y - q.y);
@@ -962,37 +974,16 @@ export class Office {
   drawScreen(g, x, y, worker, t) {
     const color = WORKER_STYLE[worker].color;
     const top = y + DESK_Y - 12;
-    R(g, x + 6, top, 22, 13, '#141826');
+    R(g, x + 5, top, 20, 13, '#141826');
     const scroll = Math.floor(t * 4);
     for (let i = 0; i < 5; i++) {
       const n = scroll + i;
       const indent = ((n * 3) % 4) * 2;
       const len = 4 + ((n * 7) % 11);
-      R(g, x + 7 + indent, top + 2 + i * 2, Math.min(len, 19 - indent), 1, i === 4 ? '#e9edf2' : n % 3 === 0 ? color : '#8b93ad');
+      R(g, x + 6 + indent, top + 2 + i * 2, Math.min(len, 17 - indent), 1, i === 4 ? '#e9edf2' : n % 3 === 0 ? color : '#8b93ad');
     }
     g.fillStyle = `${color}40`;
-    g.fillRect(x + 2, y + DESK_Y + 1, 30, 4);
-  }
-
-  drawBoard(g, r, line) {
-    const attempts = line.run?.attempts ?? [];
-    const running = line.run?.status === 'running';
-    const n = line.steps.length;
-    const chip = Math.max(3, Math.min(12, Math.floor(60 / Math.max(1, n)) - 2));
-    let x = r.x + 135;
-    const y = r.y + 10;
-    line.steps.forEach((s, i) => {
-      const last = [...attempts].reverse().find((a) => a.step === i);
-      const st = last?.status;
-      let c = WORKER_STYLE[s.worker].color;
-      if (!st) c = '#cfcbc0';
-      if (st === 'running' && running && Math.floor(this.t * 3) % 2) c = '#fbfaf6';
-      R(g, x, y, chip, 8, c);
-      if (!st) R(g, x, y + 7, chip, 1, WORKER_STYLE[s.worker].color);
-      if (st === 'done') R(g, x + chip / 2 - 1, y + 10, 2, 2, last.verdict === 'MUDANCAS_NECESSARIAS' ? '#c9871a' : '#2f8f3a');
-      if (st === 'failed') R(g, x + chip / 2 - 1, y + 10, 2, 2, '#c23b44');
-      x += chip + 2;
-    });
+    g.fillRect(x + 1, y + DESK_Y + 1, 28, 4);
   }
 
   drawCar(g, t) {
@@ -1078,10 +1069,11 @@ export class Office {
   }
 
   /** Crachá com a letra da IA e o nome. */
-  nameTag(ctx, a, wx, wy) {
+  nameTag(ctx, a, wx, wy, text = a.label, max = 220) {
     const style = WORKER_STYLE[a.worker];
     ctx.font = '600 11px Inter, system-ui, sans-serif';
-    const tw = ctx.measureText(a.label).width;
+    const label = this.clip(ctx, text, max);
+    const tw = ctx.measureText(label).width;
     const w = tw + 26;
     const h = 18;
     const x = this.sx(wx) - w / 2;
@@ -1098,13 +1090,13 @@ export class Office {
     ctx.fillText(style.letter, x + 9, y + h / 2 + 0.5);
     ctx.font = '600 11px Inter, system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(a.label, x + 19, y + h / 2 + 0.5);
+    ctx.fillText(label, x + 19, y + h / 2 + 0.5);
   }
 
   /** Balão branco com ícone e o que a IA está fazendo. */
-  bubble(ctx, text, wx, wy) {
+  bubble(ctx, text, wx, wy, max = 210) {
     ctx.font = '500 12px Inter, system-ui, sans-serif';
-    const label = this.clip(ctx, text, 210);
+    const label = this.clip(ctx, text, max);
     const tw = ctx.measureText(label).width;
     const w = tw + 34;
     const h = 24;
@@ -1134,25 +1126,24 @@ export class Office {
 
   drawOverlay(ctx) {
     const z = this.cam.z;
+    const active = this.current ?? [];
+    const selRoom = this.roomOfLine(this.selected);
     for (const r of this.rooms) {
-      const sel = r.kind === 'line' && r.lineId === this.selected;
+      const sel = r === selRoom;
       if (!sel && this.hover !== r) continue;
       ctx.strokeStyle = sel ? 'rgba(106,162,255,.95)' : 'rgba(255,255,255,.55)';
       ctx.lineWidth = sel ? 3 : 2;
       ctx.strokeRect(this.sx(r.x) + 1, this.sy(r.y) + 1, r.w * z - 2, r.h * z - 2);
     }
     for (const r of this.rooms) {
-      if (r.kind === 'line') {
-        const line = this.lines.find((l) => l.id === r.lineId);
-        if (!line) continue;
-        this.roomTag(ctx, r, line.name, {
-          statusColor: STATUS[lineStatus(line)][1],
-          dots: r.workers.map((w) => WORKER_STYLE[w].color),
-          badge: String(line.steps.length),
-          highlight: line.id === this.selected,
+      if (r.work) {
+        const here = active.filter((a) => a.room === r.kind);
+        this.roomTag(ctx, r, `${r.icon} ${r.title}`, {
+          statusColor: here.length ? STATUS.running[1] : null,
+          dots: [...new Set(here.map((a) => a.worker))].map((w) => WORKER_STYLE[w].color),
+          badge: here.length ? String(here.length) : null,
+          highlight: r === selRoom,
         });
-      } else if (r.kind === 'new') {
-        this.roomTag(ctx, r, '+ Nova linha');
       } else {
         const best = this.skills.filter((s) => s.melhor).length;
         if (r.kind === 'skills') this.roomTag(ctx, r, `📚 ${r.title}`, { badge: best ? `⭐ ${best}` : null });
@@ -1160,12 +1151,14 @@ export class Office {
       }
     }
     if (z < 0.75) return; // longe demais para crachás e balões
+    const slot = (DESKS[1] - DESKS[0]) * z; // largura de uma mesa na tela
     for (const a of this.avatars) {
       if (a.seated && a.assign) {
         const r = this.roomOfLine(a.assign.lineId);
         if (!r) continue;
-        this.nameTag(ctx, a, a.x, r.y + DESK_Y + 30);
-        this.bubble(ctx, a.assign.activity || 'trabalhando…', a.x, r.y + DESK_Y + 2 - SIT_H);
+        const up = a.assign.desk % 2 ? 28 : 0; // balões alternados para não encavalar
+        this.nameTag(ctx, a, a.x, r.y + DESK_Y + 30, a.assign.lineName, Math.max(70, slot - 26));
+        this.bubble(ctx, a.assign.activity || 'trabalhando…', a.x, r.y + DESK_Y + 2 - SIT_H - up / z, Math.max(70, slot * 1.6 - 34));
       } else if (!a.walking || z >= 1.5) {
         this.nameTag(ctx, a, a.x, a.y + 3);
       }
