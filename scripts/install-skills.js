@@ -1,28 +1,73 @@
 #!/usr/bin/env node
-// Copia as skills do AI Office para um projeto, para usar no Claude Code
-// (.claude/skills) e no Codex (.agents/skills) fora do escritório também.
+// Instala as skills do AI Office para usar no Claude Code e no Codex fora do
+// escritório também.
+//
+//   npm run skills:global                       → todas as sessões do usuário
+//   npm run skills:install -- /caminho/projeto  → só aquele projeto
+//   npm run skills:global -- --uninstall        → remove o que foi instalado
+//
+// Pastas globais: $CLAUDE_CONFIG_DIR/skills (padrão ~/.claude/skills) e
+// $CODEX_HOME/skills (padrão ~/.codex/skills).
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-const target = process.argv[2];
-if (!target) {
-  console.error('Uso: npm run skills:install -- /caminho/do/projeto');
-  process.exit(1);
-}
-const src = path.resolve(import.meta.dirname, '..', 'skills');
-const root = path.resolve(target);
-if (!fs.existsSync(root)) {
-  console.error(`Pasta não encontrada: ${root}`);
-  process.exit(1);
+const MARKER = '.ai-office.json';
+const SRC = path.resolve(import.meta.dirname, '..', 'skills');
+
+const args = process.argv.slice(2);
+const flag = (f) => args.includes(f);
+const positional = args.filter((a) => !a.startsWith('--'));
+
+function targets() {
+  if (flag('--global')) {
+    const home = os.homedir();
+    return {
+      'Claude Code': path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'skills'),
+      Codex: path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'skills'),
+    };
+  }
+  if (!positional[0]) {
+    console.error('Uso: npm run skills:install -- /caminho/do/projeto   ou   npm run skills:global');
+    process.exit(1);
+  }
+  const root = path.resolve(positional[0]);
+  if (!fs.existsSync(root)) {
+    console.error(`Pasta não encontrada: ${root}`);
+    process.exit(1);
+  }
+  return { 'Claude Code': path.join(root, '.claude', 'skills'), Codex: path.join(root, '.agents', 'skills') };
 }
 
-const dests = [path.join(root, '.claude', 'skills'), path.join(root, '.agents', 'skills')];
-for (const dest of dests) {
-  for (const name of fs.readdirSync(src)) {
-    const from = path.join(src, name, 'SKILL.md');
-    if (!fs.existsSync(from)) continue;
-    fs.mkdirSync(path.join(dest, name), { recursive: true });
-    fs.copyFileSync(from, path.join(dest, name, 'SKILL.md'));
+const skills = fs.readdirSync(SRC).filter((n) => fs.existsSync(path.join(SRC, n, 'SKILL.md')));
+const dryRun = flag('--dry-run');
+const force = flag('--force');
+
+for (const [agent, dest] of Object.entries(targets())) {
+  if (flag('--uninstall')) {
+    // Só remove o que o AI Office instalou (tem o marcador).
+    const ours = fs.existsSync(dest) ? fs.readdirSync(dest).filter((n) => fs.existsSync(path.join(dest, n, MARKER))) : [];
+    if (!dryRun) for (const n of ours) fs.rmSync(path.join(dest, n), { recursive: true, force: true });
+    console.log(`✔ ${agent}: ${ours.length} skill(s) removida(s) de ${dest}`);
+    continue;
   }
-  console.log(`✔ skills copiadas para ${path.relative(process.cwd(), dest) || dest}`);
+  const done = [];
+  for (const name of skills) {
+    const to = path.join(dest, name);
+    // Uma skill com o mesmo nome que não veio do AI Office é do usuário: não sobrescreve.
+    if (fs.existsSync(to) && !fs.existsSync(path.join(to, MARKER)) && !force) {
+      console.log(`  · ${agent}: ${name} já existe e não foi instalada pelo AI Office — mantida (use --force para substituir)`);
+      continue;
+    }
+    if (!dryRun) {
+      fs.mkdirSync(to, { recursive: true });
+      fs.copyFileSync(path.join(SRC, name, 'SKILL.md'), path.join(to, 'SKILL.md'));
+      fs.writeFileSync(path.join(to, MARKER), JSON.stringify({ source: 'ai-office' }) + '\n');
+    }
+    done.push(name);
+  }
+  console.log(`✔ ${agent}: ${done.length} skill(s) em ${dest}${dryRun ? ' (simulação, nada gravado)' : ''}`);
+}
+if (flag('--global') && !flag('--uninstall')) {
+  console.log('\nReinicie o Claude Code e o Codex. No Claude, as skills são ativadas pela descrição; no Codex, chame com $nome-da-skill ou deixe ele escolher.');
 }

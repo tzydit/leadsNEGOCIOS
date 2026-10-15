@@ -12,7 +12,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test \"test/*.test.js\"",
-    "skills:install": "node scripts/install-skills.js"
+    "skills:install": "node scripts/install-skills.js",
+    "skills:global": "node scripts/install-skills.js --global"
   },
   "dependencies": {
     "express": "^5.1.0",

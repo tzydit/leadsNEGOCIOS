@@ -65,8 +65,23 @@ Ficam em [`skills/`](skills/) no formato padrão `SKILL.md`, o mesmo usado pelo 
 Dentro do escritório, as skills marcadas vão **embutidas no prompt** da etapa. Para usá-las também no Claude Code e no Codex fora daqui:
 
 ```bash
-npm run skills:install -- /caminho/do/projeto   # copia para .claude/skills e .agents/skills
+npm run skills:global                            # todas as sessões: ~/.claude/skills e ~/.codex/skills
+npm run skills:install -- /caminho/do/projeto    # só um projeto: .claude/skills e .agents/skills
+npm run skills:global -- --uninstall             # remove só o que o AI Office instalou
 ```
+
+`CLAUDE_CONFIG_DIR` e `CODEX_HOME` são respeitados. Se você já tiver uma skill com o mesmo nome, ela **não** é sobrescrita (use `--force` se quiser). `--dry-run` mostra o que seria feito.
+
+### Skills do GitHub para economizar tokens
+
+Duas opções conhecidas e de licença aberta (Apache-2.0) que funcionam no Claude Code **e** no Codex. Elas não vêm embutidas aqui: revise e instale direto do projeto oficial.
+
+| Projeto | O que economiza | Instalação global |
+|---|---|---|
+| [caveman](https://github.com/JuliusBrussee/caveman) | **Saída**: respostas curtas sem perder fatos técnicos. `caveman-compress` reescreve CLAUDE.md/AGENTS.md (lidos a cada turno) e corta **entrada**, mas envia o texto do arquivo ao provedor do modelo. | Claude: `claude plugin marketplace add JuliusBrussee/caveman && claude plugin install caveman@caveman` · Codex: `npx skills add JuliusBrussee/caveman -a codex -g` (chame com `$caveman`) |
+| [rtk](https://github.com/rtk-ai/rtk) | **Entrada**: comprime a saída de comandos do terminal (`git status`, testes, logs) antes de a IA ler. Não age em Read/Grep do Claude. | instale o binário (veja o README; `RTK_EDITION=oss` é a edição Apache-2.0) e rode `rtk init -g` (Claude) e `rtk init -g --codex` (Codex); confira com `rtk gain` |
+
+Expectativa realista: o caveman anuncia de 65% a 75% menos tokens de saída por resposta, mas medições independentes apontam algo entre 12% e 24% na sessão inteira, porque a entrada (contexto) costuma pesar mais. Os maiores ganhos vêm de reduzir o que entra: menos etapas, arquivos de memória enxutos e saídas de comando comprimidas.
 
 ## Dicas para gastar menos tokens
 

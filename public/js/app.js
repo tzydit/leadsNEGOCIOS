@@ -493,7 +493,7 @@ function settingsHtml() {
 }
 
 function skillsHtml() {
-  return `<p class="compare-note" style="margin-top:0">Ative as skills por etapa no painel da linha. Elas vão dentro do prompt da etapa. Para usar no Claude Code e no Codex fora do escritório, rode <code>npm run skills:install -- /caminho/do/projeto</code>.</p>
+  return `<p class="compare-note" style="margin-top:0">Ative as skills por etapa no painel da linha. Elas vão dentro do prompt da etapa. Para usar no Claude Code e no Codex em todas as sessões, rode <code>npm run skills:global</code> (ou <code>npm run skills:install -- /caminho/do/projeto</code> para um projeto só).</p>
   ${S.data.skills.map((k) => `<details class="skill-card" data-skill-card="${esc(k.name)}"><summary>${esc(k.name)}</summary><p>${esc(k.description)}</p><pre>carregando…</pre></details>`).join('')}`;
 }
 
