@@ -58,6 +58,20 @@ O modo de cada IA (auto, real ou simulado) fica em ⚙ Configurações.
 | Planejar | escreve um plano para a próxima IA | somente leitura |
 | Análise fria | diagnóstico do projeto inteiro | somente leitura |
 
+## Capturas de tela no Chrome (front-end)
+
+Para design, a IA precisa **ver** a página. O AI Office tira capturas no **Google Chrome que você já tem instalado** (sem baixar navegador; se não houver Chrome, usa o Microsoft Edge):
+
+1. Na linha, preencha **Site de preview** (ex.: `http://localhost:5173`) e, se quiser que o AI Office suba o site sozinho, o **Comando para subir o site** (ex.: `npm install && npm run dev`, que roda dentro do worktree da linha).
+2. Marque a skill **📸 `captura-tela`** nas etapas de front-end, ou use o modelo **Front-end com capturas de tela** (Claude faz com `frontend-design` + `accessibility`, Codex revisa olhando as capturas).
+3. Antes de cada etapa com a skill, o AI Office captura **desktop (1440×900)** e **celular (390×844)** e passa as imagens para a IA. No Claude, ela abre o PNG; no Codex, as imagens vão anexadas. O navegador também aponta erros de console, imagens que não carregaram e **rolagem horizontal** no celular.
+4. Durante a etapa, a IA pode capturar de novo depois de ajustar (no máximo 3 rodadas, porque cada imagem custa cerca de 1,5 mil tokens).
+5. Veja tudo na aba **📸 Capturas** da linha. O botão **Capturar agora** serve para testar.
+
+Também dá para usar direto: `node scripts/screenshot.js http://localhost:5173 --name home --sizes desktop,tablet,mobile --full`. Se o Chrome estiver num lugar diferente, informe o caminho em ⚙ Configurações ou na variável `CHROME_PATH`.
+
+Permissões: no Claude, só esse comando de captura é liberado (nada de `node` genérico). No Codex, o executor ganha acesso à rede local para abrir o site de preview; o revisor continua somente leitura e recebe as imagens anexadas.
+
 ## Modelos e raciocínio
 
 - **No topo**, no cartão de cada IA, escolha o **modelo padrão** e o **nível de raciocínio** padrão. Vale para todas as etapas que não escolherem outro.
@@ -120,6 +134,7 @@ Avaliadas e deixadas de fora: `web-design-guidelines` (Vercel) baixa as regras d
 | `frontend-web` | acessibilidade, performance, responsividade, estado |
 | `backend-api` | validação, autorização, banco, erros, idempotência |
 | `testes-web` | testes que realmente falham sem a mudança, rodando só o necessário |
+| 📸 `captura-tela` | captura a página no Chrome (desktop e celular) e confere o design pelas imagens |
 
 Cada skill marcada numa etapa entra no prompt (o tamanho aproximado em tokens aparece ao passar o mouse). As skills grandes trazem arquivos de referência que a IA lê só quando precisa. O papel **Auditar segurança** já vem com `security-best-practices`.
 

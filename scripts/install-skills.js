@@ -14,6 +14,7 @@ import path from 'node:path';
 
 const MARKER = '.ai-office.json';
 const SRC = path.resolve(import.meta.dirname, '..', 'skills');
+const SHOT = path.resolve(import.meta.dirname, 'screenshot.js');
 
 const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
@@ -66,6 +67,10 @@ for (const [agent, dest] of Object.entries(targets())) {
       // Pasta inteira: as skills do GitHub trazem referências e a licença junto.
       fs.rmSync(to, { recursive: true, force: true });
       fs.cpSync(dir, to, { recursive: true });
+      // captura-tela: aponta para o script de captura deste AI Office
+      const skillFile = path.join(to, 'SKILL.md');
+      const text = fs.readFileSync(skillFile, 'utf8');
+      if (text.includes('{{CAPTURA_CMD}}')) fs.writeFileSync(skillFile, text.replaceAll('{{CAPTURA_CMD}}', `node "${SHOT}" --out ".ai-office/capturas"`));
       fs.writeFileSync(path.join(to, MARKER), JSON.stringify({ source: 'ai-office' }) + '\n');
     }
     done.push(name);

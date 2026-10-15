@@ -1,4 +1,5 @@
 import express from 'express';
+import { checkUrl } from './screenshot.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
@@ -65,6 +66,7 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     if (b.defaultWorkdir !== undefined) patch.defaultWorkdir = String(b.defaultWorkdir).slice(0, 500).trim();
     if (b.diffMaxChars !== undefined) patch.diffMaxChars = Math.min(200000, Math.max(1000, Number(b.diffMaxChars) || 12000));
     if (b.handoffMaxChars !== undefined) patch.handoffMaxChars = Math.min(20000, Math.max(200, Number(b.handoffMaxChars) || 2000));
+    if (b.chromePath !== undefined) patch.chromePath = String(b.chromePath).slice(0, 500).trim();
     if (b.billingPollSeconds !== undefined) patch.billingPollSeconds = Math.min(3600, Math.max(60, Number(b.billingPollSeconds) || 300));
     if (b.pricing !== undefined) patch.pricing = sanitizePricing(b.pricing);
     patch.workers = {};
@@ -150,6 +152,41 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     const { getDiff, isGitRepo } = await import('./git.js');
     if (!(await isGitRepo(dir))) return res.json({ empty: true, message: 'A pasta não é um repositório git.' });
     res.json({ ...(await getDiff(dir, line.run.base, 200000)), branch: line.run.branch, dir });
+  }));
+
+  // ---- capturas de tela ----
+  const CAPTURE_FILE = /^[\w.-]+\.png$/;
+  const listCaptures = (line) => {
+    const dir = orchestrator.captureDir(line);
+    if (!fs.existsSync(dir)) return [];
+    return fs
+      .readdirSync(dir)
+      .filter((f) => CAPTURE_FILE.test(f))
+      .map((f) => ({ file: f, t: fs.statSync(path.join(dir, f)).mtimeMs, url: `/api/captures/${line.id}/${encodeURIComponent(f)}` }))
+      .sort((a, b) => b.t - a.t)
+      .slice(0, 60);
+  };
+
+  app.get('/api/lines/:id/captures', wrap(async (req, res) => {
+    const line = getLine(req.params.id);
+    if (!line) throw notFound();
+    res.json(listCaptures(line));
+  }));
+
+  app.get('/api/captures/:lineId/:file', (req, res) => {
+    const line = getLine(req.params.lineId);
+    if (!line || !CAPTURE_FILE.test(req.params.file)) return res.status(404).end();
+    res.sendFile(path.join(orchestrator.captureDir(line), req.params.file), { headers: { 'Cache-Control': 'no-store' } }, (err) => err && !res.headersSent && res.status(404).end());
+  });
+
+  app.post('/api/lines/:id/capture', wrap(async (req, res) => {
+    const line = getLine(req.params.id);
+    if (!line) throw notFound();
+    if (!line.preview?.url) throw new Error('Defina a URL de preview da linha (ex.: http://localhost:5173).');
+    checkUrl(line.preview.url);
+    const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+    const r = await orchestrator.captureFn({ url: line.preview.url, outDir: orchestrator.captureDir(line), name: `manual-${stamp}`, chromePath: store.settings.chromePath || undefined });
+    res.json({ files: r.files.map((f) => path.basename(f.path)), problems: r.problems, via: r.via, captures: listCaptures(line) });
   }));
 
   app.post('/api/stats/reset', (req, res) => {

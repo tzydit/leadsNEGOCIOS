@@ -7,7 +7,8 @@ import { createSimulatedRunner } from './adapters/simulated.js';
 import { clip } from './adapters/common.js';
 import { ensureWorktree, getDiff, headCommit, isGitRepo } from './git.js';
 import { buildPrompt, extractFindings, extractSummary, parseVerdict, VERDICT_ROLES, WORKERS } from './prompts.js';
-import { detectCli } from './proc.js';
+import { detectCli, startProcess, waitForUrl } from './proc.js';
+import { capture as chromeCapture } from './screenshot.js';
 import { attemptCost } from './pricing.js';
 import { CLAUDE_MODELS, CODEX_FALLBACK, loadCodexModels } from './models.js';
 
@@ -19,11 +20,14 @@ const total = (u) => (u?.input ?? 0) + (u?.output ?? 0);
  * linhas diferentes rodam em paralelo (cada uma no seu worktree).
  */
 export class Orchestrator extends EventEmitter {
-  constructor({ store, skills, skillsDir = null, worktreesDir, runners = {}, detect = detectCli, loadModels = loadCodexModels }) {
+  constructor({ store, skills, skillsDir = null, worktreesDir, capturesDir = path.join(worktreesDir, '..', 'capturas'), runners = {}, detect = detectCli, loadModels = loadCodexModels, capture = chromeCapture }) {
     super();
     this.store = store;
     this.skills = skills;
     this.skillsDir = skillsDir;
+    this.capturesDir = capturesDir;
+    this.captureFn = capture;
+    this.screenshotScript = path.resolve(import.meta.dirname, '..', 'scripts', 'screenshot.js');
     this.worktreesDir = worktreesDir;
     this.real = { claude: runners.claude ?? runClaude, codex: runners.codex ?? runCodex };
     this.simulated = runners.simulated ?? createSimulatedRunner();
@@ -82,6 +86,7 @@ export class Orchestrator extends EventEmitter {
   }
 
   log(line, entry) {
+    if (!line.run) return;
     const e = { t: Date.now(), ...entry };
     line.run.log.push(e);
     if (line.run.log.length > LOG_LIMIT) line.run.log.splice(0, line.run.log.length - LOG_LIMIT);
@@ -151,7 +156,6 @@ export class Orchestrator extends EventEmitter {
 
   async execute(line, ctl) {
     const run = line.run;
-    const settings = this.store.settings;
     const where = await this.resolveDir(line);
     run.dir = where.dir;
     run.branch = where.branch ?? null;
@@ -168,6 +172,56 @@ export class Orchestrator extends EventEmitter {
       }
     }
 
+    const preview = await this.startPreview(line, where.dir);
+    try {
+      await this.runSteps(line, ctl, where);
+    } finally {
+      preview?.stop();
+    }
+  }
+
+  // ---- capturas de tela -------------------------------------------------
+
+  captureDir(line) {
+    return path.join(this.capturesDir, line.id);
+  }
+
+  /** Comando que as IAs usam para capturar; o mesmo prefixo é liberado no Claude. */
+  captureCmd(line) {
+    return `node "${this.screenshotScript}" --out "${this.captureDir(line)}"`;
+  }
+
+  /** Sobe o site de preview da linha (se houver comando) e espera a URL responder. */
+  async startPreview(line, dir) {
+    const { url, command } = line.preview ?? {};
+    if (!command || !dir) return null;
+    this.log(line, { kind: 'info', text: `🌐 Subindo o site: ${command}` });
+    const proc = startProcess(command, { cwd: dir });
+    if (url) {
+      const ok = await waitForUrl(url, 90000, () => proc.exited);
+      this.log(line, ok ? { kind: 'info', text: `🌐 Site no ar em ${url}` } : { kind: 'error', text: `O site não respondeu em ${url}. ${proc.tail()}` });
+    }
+    return proc;
+  }
+
+  /** Captura desktop e celular da URL de preview no Chrome. */
+  async captureFor(line, name) {
+    const url = line.preview?.url;
+    if (!url) return { files: [], problems: [], error: null };
+    try {
+      const r = await this.captureFn({ url, outDir: this.captureDir(line), name, chromePath: this.store.settings.chromePath || undefined });
+      this.log(line, { kind: 'info', text: `📸 ${r.files.map((f) => `${f.size} ${path.basename(f.path)}`).join(' · ')} (${r.via})` });
+      for (const p of r.problems) this.log(line, { kind: 'error', text: `navegador: ${p}` });
+      return r;
+    } catch (err) {
+      this.log(line, { kind: 'error', text: `📸 captura falhou: ${err.message.split('\n')[0]}` });
+      return { files: [], problems: [], error: err.message.split('\n')[0] };
+    }
+  }
+
+  async runSteps(line, ctl, where) {
+    const run = line.run;
+    const settings = this.store.settings;
     let i = 0;
     let previous = null;
     let feedback = null;
@@ -199,7 +253,11 @@ export class Orchestrator extends EventEmitter {
 
       const needsDiff = where.git && (VERDICT_ROLES.has(step.role) || step.role === 'analisar') && line.steps.slice(0, i).some((s) => s.role === 'executar');
       const diff = needsDiff ? await getDiff(where.dir, where.base, settings.diffMaxChars) : null;
-      const prompt = buildPrompt({ line, step, stepIndex: i, totalSteps: line.steps.length, skills: this.skills, previous, diff, baseCommit: where.base, feedback: step.role === 'executar' ? feedback : null, round: run.round });
+      const wantsShots = (step.skills ?? []).includes('captura-tela');
+      const shots = wantsShots ? await this.captureFor(line, `etapa${i + 1}-r${run.round}`) : null;
+      if (shots?.files?.length) attempt.captures = shots.files.map((f) => path.basename(f.path));
+      const capture = wantsShots ? { cmd: this.captureCmd(line), url: line.preview?.url, files: shots.files.map((f) => f.path), problems: shots.problems, error: shots.error } : null;
+      const prompt = buildPrompt({ line, step, stepIndex: i, totalSteps: line.steps.length, skills: this.skills, previous, diff, baseCommit: where.base, feedback: step.role === 'executar' ? feedback : null, round: run.round, capture });
       if (step.role === 'executar') feedback = null;
       const chosen = [step.model || settings.workers[step.worker].model || 'modelo padrão', step.effort || settings.workers[step.worker].effort].filter(Boolean).join(' · ');
       this.log(line, { step: i, worker: step.worker, kind: 'info', text: `${WORKERS[step.worker].name} começou: ${step.role} (${mode}) · ${chosen} · prompt ~${Math.round(prompt.length / 4)} tokens` });
@@ -210,6 +268,7 @@ export class Orchestrator extends EventEmitter {
         model: step.model || settings.workers[step.worker].model,
         effort: step.effort || settings.workers[step.worker].effort,
         skillsDir: (step.skills ?? []).some((n) => this.skills.find((k) => k.name === n)?.hasFiles) ? this.skillsDir : null,
+        screenshots: wantsShots ? { rule: `Bash(node "${this.screenshotScript}":*)`, dirs: [this.captureDir(line)], images: capture.files } : null,
       };
       const handle = runner({
         prompt,

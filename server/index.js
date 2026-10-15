@@ -16,7 +16,7 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 const store = new Store(path.join(DATA_DIR, 'state.json'));
 const SKILLS_DIR = path.join(ROOT, 'skills');
 const skills = loadSkills(SKILLS_DIR);
-const orchestrator = new Orchestrator({ store, skills, skillsDir: SKILLS_DIR, worktreesDir: path.join(DATA_DIR, 'worktrees') });
+const orchestrator = new Orchestrator({ store, skills, skillsDir: SKILLS_DIR, worktreesDir: path.join(DATA_DIR, 'worktrees'), capturesDir: path.join(DATA_DIR, 'capturas') });
 const workers = await orchestrator.detect();
 const billing = new Billing();
 billing.start(store.settings.billingPollSeconds);

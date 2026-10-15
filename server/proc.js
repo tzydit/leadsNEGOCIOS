@@ -115,6 +115,53 @@ export function runJsonl({ bin, args, cwd, stdin, env, onJson, onText }) {
   return { done, kill };
 }
 
+/**
+ * Sobe um comando de longa duração (ex.: servidor de desenvolvimento) via shell.
+ * Guarda o fim da saída para diagnóstico e mata a árvore de processos no stop().
+ */
+export function startProcess(command, { cwd } = {}) {
+  const child = spawn(command, { cwd, shell: true, detached: !IS_WIN, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let out = '';
+  let exited = false;
+  const keep = (c) => (out = (out + c).slice(-2000));
+  child.stdout.setEncoding('utf8').on('data', keep);
+  child.stderr.setEncoding('utf8').on('data', keep);
+  child.on('exit', () => (exited = true));
+  child.on('error', (e) => {
+    exited = true;
+    keep(String(e.message));
+  });
+  return {
+    get exited() {
+      return exited;
+    },
+    tail: () => out.trim().split('\n').slice(-5).join(' | '),
+    stop: () => {
+      if (exited) return;
+      try {
+        if (IS_WIN) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        else process.kill(-child.pid, 'SIGTERM');
+      } catch {
+        child.kill('SIGTERM');
+      }
+    },
+  };
+}
+
+/** Espera uma URL responder (qualquer status HTTP) até o prazo. */
+export async function waitForUrl(url, timeoutMs = 90000, gaveUp = () => false) {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end && !gaveUp()) {
+    try {
+      await fetch(url, { signal: AbortSignal.timeout(2000) });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  return false;
+}
+
 /** execFile com promise que nunca rejeita: { code, stdout, stderr }. */
 export function exec(bin, args, opts = {}) {
   return new Promise((resolve) => {

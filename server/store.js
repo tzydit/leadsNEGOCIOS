@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = {
   diffMaxChars: 12000,
   handoffMaxChars: 2000,
   billingPollSeconds: 300,
+  chromePath: '',
   pricing: DEFAULT_PRICING,
   workers: {
     claude: {

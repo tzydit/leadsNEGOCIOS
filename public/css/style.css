@@ -266,6 +266,15 @@ label { color: var(--muted); font-size: 12px; }
 .skill-src { font-size: 11px; color: var(--muted); margin-left: 8px; font-family: var(--sans); }
 .skill-src a { color: #9cc0ff; }
 .skill-card.best { border-color: rgba(240,185,74,.3); }
+.skill-chip.rec { border-color: rgba(95,176,255,.4); color: #8fc3f0; }
+.skill-chip.rec[aria-pressed=true] { background: rgba(95,176,255,.16); border-color: rgba(95,176,255,.75); color: #cfe6ff; }
+.shot-group { margin-bottom: 14px; }
+.shot-group h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.shot-group h4 small { color: var(--faint); font-weight: 400; margin-left: 6px; }
+.shots { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.shot { display: flex; flex-direction: column; gap: 3px; text-decoration: none; color: var(--muted); font-size: 11px; }
+.shot img { max-height: 190px; max-width: 100%; border-radius: 6px; border: 1px solid var(--line-strong); background: #fff; }
+.shot:hover img { border-color: var(--accent); }
 .skill-card summary b { font-weight: 600; }
 .skill-why { color: var(--text) !important; }
 .skill-meta { font-size: 11px !important; color: var(--faint) !important; }

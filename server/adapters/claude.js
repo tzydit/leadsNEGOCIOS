@@ -116,13 +116,15 @@ export function buildClaudeArgs({ role, config }) {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
   if (config.model) args.push('--model', config.model);
   if (config.effort) args.push('--effort', config.effort);
-  // Leitura das referências das skills (ficam fora da pasta do projeto).
-  if (config.skillsDir) args.push('--add-dir', config.skillsDir);
+  // Leitura das referências das skills e das capturas (ficam fora da pasta do projeto).
+  const dirs = [config.skillsDir, ...(config.screenshots?.dirs ?? [])].filter(Boolean);
+  if (dirs.length) args.push('--add-dir', ...dirs);
+  const shotRule = config.screenshots?.rule ? [config.screenshots.rule] : [];
   if (READ_ONLY_ROLES.has(role)) {
-    args.push('--permission-mode', 'dontAsk', '--allowedTools', ...READ_ONLY_TOOLS);
+    args.push('--permission-mode', 'dontAsk', '--allowedTools', ...READ_ONLY_TOOLS, ...shotRule);
   } else {
     args.push('--permission-mode', 'acceptEdits');
-    const tools = splitTools(config.allowedTools);
+    const tools = [...splitTools(config.allowedTools), ...shotRule];
     if (tools.length) args.push('--allowedTools', ...tools);
   }
   if (Number(config.maxBudgetUsd) > 0) args.push('--max-budget-usd', String(config.maxBudgetUsd));

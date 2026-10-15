@@ -102,6 +102,7 @@ function handle(msg) {
     if (arr.length > 400) arr.splice(0, arr.length - 400);
     S.logs.set(msg.lineId, arr);
     if (S.selected === msg.lineId && S.tab === 'vivo') appendLog(msg.entry);
+    if (S.selected === msg.lineId && S.tab === 'capturas' && String(msg.entry.text).startsWith('📸')) renderCaptures($('.panel-body'), getLine(msg.lineId));
     scheduleFeed();
   } else if (msg.type === 'stats') {
     S.data.stats = msg.stats;
@@ -134,8 +135,8 @@ function scheduleSave(id) {
         S.saveTimers.delete(id);
         const d = S.drafts.get(id);
         if (!d) return;
-        const { name, workdir, useWorktree, tokenBudget, loop, steps } = d;
-        await api('PUT', `/api/lines/${id}`, { name, workdir, useWorktree, tokenBudget, loop, steps });
+        const { name, workdir, useWorktree, tokenBudget, loop, steps, preview } = d;
+        await api('PUT', `/api/lines/${id}`, { name, workdir, useWorktree, tokenBudget, loop, steps, preview });
       }),
       450,
     ),
@@ -147,8 +148,8 @@ async function flushSave(id) {
   clearTimeout(S.saveTimers.get(id));
   S.saveTimers.delete(id);
   const d = S.drafts.get(id);
-  const { name, workdir, useWorktree, tokenBudget, loop, steps } = d;
-  await api('PUT', `/api/lines/${id}`, { name, workdir, useWorktree, tokenBudget, loop, steps });
+  const { name, workdir, useWorktree, tokenBudget, loop, steps, preview } = d;
+  await api('PUT', `/api/lines/${id}`, { name, workdir, useWorktree, tokenBudget, loop, steps, preview });
 }
 
 // ---- top bar --------------------------------------------------------------
@@ -238,7 +239,7 @@ function renderPanel({ soft = false } = {}) {
   const keepScroll = soft ? $('.panel-body', panel)?.scrollTop : 0;
   panel.innerHTML = `<div class="panel-head"></div>
     <div class="tabs" role="tablist">
-      ${[['etapas', 'Etapas', line.steps.length], ['vivo', 'Ao vivo', ''], ['diff', 'Diff', ''], ['tokens', 'Tokens', fmt(lineTokens(line))]]
+      ${[['etapas', 'Etapas', line.steps.length], ['vivo', 'Ao vivo', ''], ['capturas', '📸 Capturas', ''], ['diff', 'Diff', ''], ['tokens', 'Tokens', fmt(lineTokens(line))]]
         .map(([k, label, c]) => `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${label}${c !== '' ? `<span class="count">${c}</span>` : ''}</button>`)
         .join('')}
     </div>
@@ -249,6 +250,7 @@ function renderPanel({ soft = false } = {}) {
   if (S.tab === 'vivo') renderLog(body, line);
   if (S.tab === 'diff') renderDiff(body, line, soft);
   if (S.tab === 'tokens') body.innerHTML = tokensHtml(line);
+  if (S.tab === 'capturas') renderCaptures(body, line, soft);
   if (soft && S.tab !== 'vivo') body.scrollTop = keepScroll;
 }
 
@@ -327,6 +329,14 @@ function stepsHtml(line) {
       </div>
       <label class="check inline"><input type="checkbox" data-f="loop.enabled" ${d.loop?.enabled ? 'checked' : ''}> Ciclo de revisão, até
         <input type="number" min="1" max="5" data-f="loop.maxRounds" value="${d.loop?.maxRounds ?? 2}" aria-label="Máximo de rodadas"> rodadas</label>
+      <div class="field">
+        <label for="fPreview">Site de preview (para capturas no Chrome)</label>
+        <input id="fPreview" type="text" data-f="preview.url" value="${esc(d.preview?.url ?? '')}" placeholder="http://localhost:5173">
+      </div>
+      <div class="field">
+        <label for="fPreviewCmd">Comando para subir o site (opcional)</label>
+        <input id="fPreviewCmd" type="text" data-f="preview.command" value="${esc(d.preview?.command ?? '')}" placeholder="npm install && npm run dev">
+      </div>
     </div>
     <div class="section-title">
       <span>ETAPAS</span>
@@ -448,6 +458,37 @@ function paintDiff(body, line) {
   body.innerHTML = `${head}<pre class="diff" style="margin-bottom:8px">${esc(d.stat)}</pre><pre class="diff">${lines}</pre>${d.truncated ? '<div class="empty">Diff truncado.</div>' : ''}`;
 }
 
+// ---- capturas -------------------------------------------------------------
+
+async function renderCaptures(body, line, soft = false) {
+  if (!body || !line) return;
+  if (!(soft && S.captures?.lineId === line.id)) {
+    try {
+      S.captures = { lineId: line.id, list: await api('GET', `/api/lines/${line.id}/captures`) };
+    } catch (e) {
+      S.captures = { lineId: line.id, list: [], error: e.message };
+    }
+  }
+  if (S.selected !== line.id || S.tab !== 'capturas') return;
+  const list = S.captures.list ?? [];
+  const url = line.preview?.url;
+  const problems = S.captureProblems?.length ? `<div class="notice">${S.captureProblems.map(esc).join('<br>')}</div>` : '';
+  const groups = new Map();
+  for (const c of list) {
+    const key = c.file.replace(/-(desktop|tablet|mobile)\.png$/, '');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  const label = (k) => (k.startsWith('manual') ? 'Captura manual' : k.replace(/^etapa(\d+)-r(\d+)$/, 'Antes da etapa $1 · rodada $2'));
+  body.innerHTML = `<div class="section-title"><span>CAPTURAS NO CHROME</span><button class="btn small" data-act="capture-now" ${url ? '' : 'disabled'}>📸 Capturar agora</button></div>
+    <p class="compare-note" style="margin-top:0">${url ? `Preview: <code>${esc(url)}</code>. ` : 'Defina o <b>site de preview</b> na aba Etapas. '}Etapas com a skill <code>captura-tela</code> capturam desktop e celular antes de começar, e a IA pode capturar de novo enquanto ajusta o design.</p>
+    ${problems}
+    ${list.length ? [...groups].map(([k, items]) => `<div class="shot-group"><h4>${esc(label(k))} <small>${new Date(items[0].t).toLocaleTimeString('pt-BR', { hour12: false })}</small></h4><div class="shots">${items
+      .sort((a, b) => a.file.localeCompare(b.file))
+      .map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="shot"><img src="${esc(c.url)}" alt="${esc(c.file)}" loading="lazy"><span>${esc(c.file.match(/-(desktop|tablet|mobile)\.png$/)?.[1] ?? c.file)}</span></a>`)
+      .join('')}</div></div>`).join('') : '<div class="empty">Nenhuma captura ainda.</div>'}`;
+}
+
 // ---- tokens ---------------------------------------------------------------
 
 function lineTokens(line) {
@@ -543,6 +584,7 @@ function settingsHtml() {
     <h3>Projeto</h3>
     <div class="grid">
       <div class="field full"><label>Pasta padrão do projeto</label><input type="text" name="defaultWorkdir" value="${esc(s.defaultWorkdir)}" placeholder="/home/voce/projetos/meu-site"></div>
+      <div class="field full"><label>Chrome para capturas (vazio = Google Chrome instalado, depois Edge)</label><input type="text" name="chromePath" value="${esc(s.chromePath ?? '')}" placeholder="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"></div>
       <div class="field"><label>Máx. caracteres de diff para o revisor</label><input type="number" min="1000" step="1000" name="diffMaxChars" value="${s.diffMaxChars}"></div>
       <div class="field"><label>Máx. caracteres do resumo repassado</label><input type="number" min="200" step="100" name="handoffMaxChars" value="${s.handoffMaxChars}"></div>
     </div>
@@ -576,7 +618,7 @@ function skillChips(step) {
     const chips = list
       .map((k) => {
         const tip = `${k.melhor ? `⭐ Melhor do GitHub · ${k.autor} · ${k.licenca}\n` : 'Skill do AI Office\n'}${k.porque || k.description}\n~${fmt(k.tokens)} tokens no prompt`;
-        return `<button type="button" class="skill-chip${k.melhor ? ' best' : ''}" data-skill="${esc(k.name)}" aria-pressed="${step.skills.includes(k.name)}" title="${esc(tip)}">${k.melhor ? '⭐ ' : ''}${esc(k.name)}</button>`;
+        return `<button type="button" class="skill-chip${k.melhor ? ' best' : ''}${k.recomendada ? ' rec' : ''}" data-skill="${esc(k.name)}" aria-pressed="${step.skills.includes(k.name)}" title="${esc(tip)}">${k.melhor ? '⭐ ' : k.recomendada ? '📸 ' : ''}${esc(k.name)}</button>`;
       })
       .join('');
     return `<div class="skill-group"><span class="skill-cat">${label}</span>${chips}</div>`;
@@ -715,6 +757,18 @@ function wirePanel() {
       await api('DELETE', `/api/lines/${id}`);
       S.selected = null;
       S.drafts.delete(id);
+    } else if (act === 'capture-now') {
+      await flushSave(id);
+      btn.disabled = true;
+      btn.textContent = '📸 Capturando…';
+      try {
+        const r = await api('POST', `/api/lines/${id}/capture`);
+        S.captures = { lineId: id, list: r.captures };
+        toast(r.problems.length ? `Capturado, com ${r.problems.length} aviso(s) do navegador` : 'Capturado sem erros no navegador');
+        S.captureProblems = r.problems;
+      } finally {
+        if (S.tab === 'capturas') renderCaptures($('.panel-body'), getLine(id), true);
+      }
     } else if (act === 'refresh-diff') {
       S.diff = null;
       renderDiff($('.panel-body'), getLine(id));

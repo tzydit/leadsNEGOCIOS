@@ -99,7 +99,12 @@ export function parseCodexEvent(obj, st) {
 
 export function buildCodexArgs({ role, cwd, config }) {
   const args = ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '-C', cwd];
-  args.push('--sandbox', READ_ONLY_ROLES.has(role) ? 'read-only' : 'workspace-write');
+  const readOnly = READ_ONLY_ROLES.has(role);
+  args.push('--sandbox', readOnly ? 'read-only' : 'workspace-write');
+  // Capturas de tela: as imagens vão anexadas; o executor pode rodar o Chrome e
+  // precisa de rede local para abrir o site de preview.
+  for (const img of config.screenshots?.images ?? []) args.push('-i', img);
+  if (config.screenshots && !readOnly) args.push('-c', 'sandbox_workspace_write.network_access=true');
   if (config.model) args.push('-m', config.model);
   // Sem aspas: o Codex usa o texto cru quando não é TOML, e aspas quebram no cmd.exe.
   if (config.effort) args.push('-c', `model_reasoning_effort=${config.effort}`);

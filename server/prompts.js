@@ -77,6 +77,7 @@ export function loadSkills(skillsDir) {
         tokens: Math.round(body.length / 4),
         categoria: info.categoria ?? 'geral',
         melhor: Boolean(info.melhor),
+        recomendada: Boolean(info.recomendada),
         origem: fonte ? info.fonte : 'ai-office',
         autor: fonte?.autor ?? 'AI Office',
         licenca: fonte?.licenca ?? 'MIT',
@@ -123,7 +124,7 @@ const ROLE_BRIEF = {
  * Monta o prompt de uma etapa. Partes fixas (skills, papel) vêm primeiro para
  * aproveitar cache de prompt; contexto variável (resumo, diff) vem por último.
  */
-export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previous, diff, baseCommit, feedback, round }) {
+export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previous, diff, baseCommit, feedback, round, capture = null }) {
   const parts = [];
   const chosen = (step.skills ?? []).map((n) => skills.find((s) => s.name === n)).filter(Boolean);
   if (chosen.length) {
@@ -136,7 +137,8 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
     for (const s of chosen) {
       // Skills grandes trazem referências em arquivos; a IA lê só o que precisar.
       const files = s.hasFiles ? `\n(Arquivos de apoio desta skill — referências citadas acima: ${s.dir})` : '';
-      parts.push(`## skill: ${s.name}${files}\n${s.body}`);
+      const body = s.body.replaceAll('{{CAPTURA_CMD}}', capture?.cmd ?? 'node scripts/screenshot.js');
+      parts.push(`## skill: ${s.name}${files}\n${body}`);
     }
   }
 
@@ -159,6 +161,16 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
     );
   } else if (diff && diff.empty && VERDICT_ROLES.has(step.role)) {
     parts.push('## Mudanças a analisar\nNenhuma mudança no diretório. Analise o projeto conforme a instrução.');
+  }
+
+  if (capture) {
+    const lines = ['## Capturas de tela (Chrome)'];
+    lines.push(capture.url ? `Site de preview: ${capture.url}` : 'Sem URL de preview configurada: suba o site você mesmo e use a URL local.');
+    lines.push(`Comando: \`${capture.cmd} <url> --name <nome>\``);
+    if (capture.files?.length) lines.push(`Capturas feitas agora, antes desta etapa (abra e olhe antes de concluir):\n${capture.files.map((f) => `- ${f}`).join('\n')}`);
+    if (capture.problems?.length) lines.push(`Problemas vistos no navegador:\n${capture.problems.map((p) => `- ${p}`).join('\n')}`);
+    if (capture.error) lines.push(`A captura automática falhou: ${capture.error}`);
+    parts.push(lines.join('\n'));
   }
 
   const out = ['## Formato da resposta', 'Responda em português, direto ao ponto.', 'Termine com `RESUMO:` (no máximo 5 linhas) — é o que a próxima IA vai receber.'];

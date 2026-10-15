@@ -3,7 +3,7 @@ import { ROLES, WORKERS } from './prompts.js';
 
 export const MAX_STEPS = 12;
 
-const step = (worker, role, instruction = '') => ({ worker, role, instruction, skills: [...ROLES[role].defaultSkills] });
+const step = (worker, role, instruction = '', extra = []) => ({ worker, role, instruction, skills: [...new Set([...ROLES[role].defaultSkills, ...extra])] });
 
 export const TEMPLATES = {
   'claude-faz-codex-revisa': {
@@ -23,6 +23,14 @@ export const TEMPLATES = {
       step('claude', 'planejar'),
       step('codex', 'executar', 'Execute o plano da etapa anterior.'),
       step('claude', 'revisar', 'Revise se o plano foi cumprido e se o código está correto.'),
+    ],
+  },
+  'frontend-com-capturas': {
+    label: 'Front-end com capturas de tela',
+    loop: { enabled: true, maxRounds: 2 },
+    steps: () => [
+      step('claude', 'executar', '', ['frontend-design', 'accessibility', 'captura-tela']),
+      step('codex', 'revisar', 'Revise o código e o visual pelas capturas: layout, celular, contraste e acessibilidade.', ['captura-tela']),
     ],
   },
   'auditoria-cruzada': {
@@ -60,6 +68,11 @@ export function sanitizeLine(input, knownSkills) {
   if (input.name !== undefined) out.name = str(input.name, 60).trim() || 'Linha';
   if (input.workdir !== undefined) out.workdir = str(input.workdir, 500).trim();
   if (input.useWorktree !== undefined) out.useWorktree = Boolean(input.useWorktree);
+  if (input.preview !== undefined) {
+    const url = str(input.preview?.url, 300).trim();
+    if (url && !/^https?:\/\/[^\s]+$/i.test(url)) throw new Error('A URL de preview precisa começar com http:// ou https://');
+    out.preview = { url, command: str(input.preview?.command, 500).trim() };
+  }
   if (input.tokenBudget !== undefined) out.tokenBudget = Math.max(0, Math.floor(Number(input.tokenBudget) || 0));
   if (input.loop !== undefined) {
     out.loop = {
@@ -93,6 +106,7 @@ export function newLine({ id, index, template = 'claude-faz-codex-revisa', workd
     workdir,
     useWorktree: true,
     tokenBudget: 0,
+    preview: { url: '', command: '' },
     loop: { ...t.loop },
     steps: t.steps().map((s) => ({ ...s, model: '', effort: '' })),
     run: null,
