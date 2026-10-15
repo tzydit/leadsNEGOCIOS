@@ -19,10 +19,11 @@ const total = (u) => (u?.input ?? 0) + (u?.output ?? 0);
  * linhas diferentes rodam em paralelo (cada uma no seu worktree).
  */
 export class Orchestrator extends EventEmitter {
-  constructor({ store, skills, worktreesDir, runners = {}, detect = detectCli, loadModels = loadCodexModels }) {
+  constructor({ store, skills, skillsDir = null, worktreesDir, runners = {}, detect = detectCli, loadModels = loadCodexModels }) {
     super();
     this.store = store;
     this.skills = skills;
+    this.skillsDir = skillsDir;
     this.worktreesDir = worktreesDir;
     this.real = { claude: runners.claude ?? runClaude, codex: runners.codex ?? runCodex };
     this.simulated = runners.simulated ?? createSimulatedRunner();
@@ -208,6 +209,7 @@ export class Orchestrator extends EventEmitter {
         ...settings.workers[step.worker],
         model: step.model || settings.workers[step.worker].model,
         effort: step.effort || settings.workers[step.worker].effort,
+        skillsDir: (step.skills ?? []).some((n) => this.skills.find((k) => k.name === n)?.hasFiles) ? this.skillsDir : null,
       };
       const handle = runner({
         prompt,

@@ -9,33 +9,84 @@ export const WORKERS = {
 export const ROLES = {
   executar: { label: 'Executar', defaultSkills: ['economia-tokens'] },
   revisar: { label: 'Revisar', defaultSkills: ['economia-tokens', 'revisao-codigo'] },
-  auditar: { label: 'Auditar segurança', defaultSkills: ['economia-tokens', 'auditoria-seguranca'] },
+  auditar: { label: 'Auditar segurança', defaultSkills: ['economia-tokens', 'auditoria-seguranca', 'security-best-practices'] },
   planejar: { label: 'Planejar', defaultSkills: ['economia-tokens'] },
   analisar: { label: 'Análise fria', defaultSkills: ['economia-tokens', 'analise-fria'] },
 };
 
 export const VERDICT_ROLES = new Set(['revisar', 'auditar']);
 
-/** Lê skills/<nome>/SKILL.md → { name, description, body } (body sem frontmatter). */
+/** Lê o frontmatter YAML simples de um SKILL.md (chaves de topo, aspas e blocos > ou |). */
+export function parseFrontmatter(raw) {
+  const text = String(raw).replace(/\r\n/g, '\n');
+  const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!m) return { meta: {}, body: text.trim() };
+  const meta = {};
+  const lines = m[1].split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const kv = lines[i].match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (!kv) continue;
+    let value = kv[2].trim();
+    if (value === '>' || value === '|' || value === '>-' || value === '|-') {
+      const block = [];
+      while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) block.push(lines[++i].trim());
+      value = block.join(value.startsWith('>') ? ' ' : '\n');
+    } else if (/^(["']).*\1$/.test(value)) {
+      value = value.slice(1, -1);
+    }
+    meta[kv[1]] = value;
+  }
+  return { meta, body: m[2].trim() };
+}
+
+export function readCatalog(skillsDir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(skillsDir, 'catalog.json'), 'utf8'));
+  } catch {
+    return { fontes: {}, skills: {} };
+  }
+}
+
+/**
+ * Lê as skills do AI Office (skills/<nome>) e as melhores do GitHub
+ * (skills/github/<nome>), com origem, licença e destaque do catálogo.
+ */
 export function loadSkills(skillsDir) {
   const out = [];
   if (!fs.existsSync(skillsDir)) return out;
-  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const file = path.join(skillsDir, entry.name, 'SKILL.md');
-    if (!fs.existsSync(file)) continue;
-    const raw = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
-    const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-    const meta = {};
-    if (m) {
-      for (const line of m[1].split('\n')) {
-        const kv = line.match(/^(\w+):\s*(.*)$/);
-        if (kv) meta[kv[1]] = kv[2].trim();
-      }
+  const catalog = readCatalog(skillsDir);
+  const roots = [skillsDir, path.join(skillsDir, 'github')];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = path.join(root, entry.name);
+      const file = path.join(dir, 'SKILL.md');
+      if (!fs.existsSync(file)) continue;
+      const { meta, body } = parseFrontmatter(fs.readFileSync(file, 'utf8'));
+      const name = meta.name || entry.name;
+      const info = catalog.skills?.[name] ?? {};
+      const fonte = info.fonte && info.fonte !== 'ai-office' ? catalog.fontes?.[info.fonte] : null;
+      const extra = fs.readdirSync(dir).filter((f) => !/^(SKILL\.md|LICENSE.*|NOTICE.*|README\.md|metadata\.json)$/i.test(f));
+      out.push({
+        name,
+        description: meta.description || '',
+        body,
+        dir,
+        hasFiles: extra.length > 0,
+        tokens: Math.round(body.length / 4),
+        categoria: info.categoria ?? 'geral',
+        melhor: Boolean(info.melhor),
+        origem: fonte ? info.fonte : 'ai-office',
+        autor: fonte?.autor ?? 'AI Office',
+        licenca: fonte?.licenca ?? 'MIT',
+        url: fonte ? `https://github.com/${info.fonte}/tree/${fonte.commit}/${info.caminho ?? ''}` : null,
+        porque: info.porque ?? '',
+      });
     }
-    out.push({ name: meta.name || entry.name, description: meta.description || '', body: (m ? m[2] : raw).trim() });
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  const rank = (s) => (s.melhor ? 0 : 1);
+  return out.sort((a, b) => rank(a) - rank(b) || a.categoria.localeCompare(b.categoria) || a.name.localeCompare(b.name));
 }
 
 export function parseVerdict(text) {
@@ -77,7 +128,11 @@ export function buildPrompt({ line, step, stepIndex, totalSteps, skills, previou
   const chosen = (step.skills ?? []).map((n) => skills.find((s) => s.name === n)).filter(Boolean);
   if (chosen.length) {
     parts.push('# Skills obrigatórias desta etapa');
-    for (const s of chosen) parts.push(`## skill: ${s.name}\n${s.body}`);
+    for (const s of chosen) {
+      // Skills grandes trazem referências em arquivos; a IA lê só o que precisar.
+      const files = s.hasFiles ? `\n(Arquivos de apoio desta skill — referências citadas acima: ${s.dir})` : '';
+      parts.push(`## skill: ${s.name}${files}\n${s.body}`);
+    }
   }
 
   parts.push(`# Tarefa — AI Office · linha "${line.name}" · etapa ${stepIndex + 1}/${totalSteps}${round > 1 ? ` · rodada ${round}` : ''}`);

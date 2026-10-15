@@ -116,6 +116,8 @@ export function buildClaudeArgs({ role, config }) {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
   if (config.model) args.push('--model', config.model);
   if (config.effort) args.push('--effort', config.effort);
+  // Leitura das referências das skills (ficam fora da pasta do projeto).
+  if (config.skillsDir) args.push('--add-dir', config.skillsDir);
   if (READ_ONLY_ROLES.has(role)) {
     args.push('--permission-mode', 'dontAsk', '--allowedTools', ...READ_ONLY_TOOLS);
   } else {

@@ -89,22 +89,44 @@ Reinicie com `npm start`. As chaves ficam só no servidor local: não vão para 
 
 ## Skills
 
-Ficam em [`skills/`](skills/) no formato padrão `SKILL.md`, o mesmo usado pelo Claude Code e pelo Codex:
+São 16 skills no formato padrão `SKILL.md` (o mesmo do Claude Code e do Codex), agrupadas em **Front-end**, **Segurança** e **Geral**.
+
+### ⭐ Melhores do GitHub
+
+Escolhidas entre as fontes mais respeitadas e copiadas para [`skills/github/`](skills/github/) **só como texto** (sem scripts), revisadas, com a licença junto e fixadas no commit de origem (veja [`skills/catalog.json`](skills/catalog.json)). No site elas aparecem com ⭐.
+
+| Skill | Categoria | Autor | Licença | Para quê |
+|---|---|---|---|---|
+| `frontend-design` | Front-end | Anthropic | Apache-2.0 | interfaces com identidade própria, sem cara de template |
+| `vercel-react-best-practices` | Front-end | Vercel | MIT | mais de 60 regras de desempenho para React e Next.js |
+| `accessibility` | Front-end | Addy Osmani | MIT | auditoria WCAG 2.2 |
+| `core-web-vitals` | Front-end | Addy Osmani | MIT | LCP, INP e CLS |
+| `performance` | Front-end | Addy Osmani | MIT | carregamento, bundle, imagens e cache |
+| `security-best-practices` | Segurança | OpenAI | Apache-2.0 | guias por framework (React, Vue, Next.js, Express, Django, FastAPI, Flask, Go) |
+| `security-threat-model` | Segurança | OpenAI | Apache-2.0 | modelagem de ameaças baseada no repositório |
+| `differential-review` | Segurança | Trail of Bits | CC-BY-SA-4.0 | revisão de segurança de diffs |
+| `sharp-edges` | Segurança | Trail of Bits | CC-BY-SA-4.0 | APIs e configurações perigosas |
+
+Avaliadas e deixadas de fora: `web-design-guidelines` (Vercel) baixa as regras da internet a cada uso; `supply-chain-risk-auditor` (Trail of Bits), `webapp-testing` (Anthropic) e `playwright` (OpenAI) dependem de scripts; `insecure-defaults` (Trail of Bits) é um comando, não uma skill.
+
+### Do AI Office
 
 | Skill | Para quê |
 |---|---|
 | `economia-tokens` | ler pouco, editar cirurgicamente, responder curto, terminar com `RESUMO:` |
 | `revisao-codigo` | revisão fria com evidência `arquivo:linha` e veredito |
-| `auditoria-seguranca` | OWASP Top 10, segredos, auth, CSRF/SSRF, dependências |
+| `auditoria-seguranca` | OWASP Top 10, segredos, auth, CSRF/SSRF, dependências, com veredito |
 | `analise-fria` | nota, riscos, dívida técnica e próximos passos do projeto |
 | `frontend-web` | acessibilidade, performance, responsividade, estado |
 | `backend-api` | validação, autorização, banco, erros, idempotência |
 | `testes-web` | testes que realmente falham sem a mudança, rodando só o necessário |
 
+Cada skill marcada numa etapa entra no prompt (o tamanho aproximado em tokens aparece ao passar o mouse). As skills grandes trazem arquivos de referência que a IA lê só quando precisa. O papel **Auditar segurança** já vem com `security-best-practices`.
+
 Dentro do escritório, as skills marcadas vão **embutidas no prompt** da etapa. Para usá-las também no Claude Code e no Codex fora daqui:
 
 ```bash
-npm run skills:global                            # todas as sessões: ~/.claude/skills e ~/.codex/skills
+npm run skills:global                            # as 16 skills em todas as sessões: ~/.claude/skills e ~/.codex/skills
 npm run skills:install -- /caminho/do/projeto    # só um projeto: .claude/skills e .agents/skills
 npm run skills:global -- --uninstall             # remove só o que o AI Office instalou
 ```

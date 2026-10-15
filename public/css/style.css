@@ -258,6 +258,17 @@ label { color: var(--muted); font-size: 12px; }
 .skills { display: flex; flex-wrap: wrap; gap: 4px; }
 .skill-chip { font: 11px var(--mono); padding: 2px 7px; border-radius: 5px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--faint); }
 .skill-chip[aria-pressed=true] { background: rgba(91,140,255,.16); border-color: rgba(91,140,255,.5); color: #c6d6ff; }
+.skill-chip.best { border-color: rgba(240,185,74,.35); color: #c9a964; }
+.skill-chip.best[aria-pressed=true] { background: rgba(240,185,74,.16); border-color: rgba(240,185,74,.7); color: #ffd98a; }
+.skill-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; }
+.skill-cat { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); width: 100%; margin-top: 2px; }
+.best-badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: rgba(240,185,74,.18); color: #ffd98a; margin-left: 8px; }
+.skill-src { font-size: 11px; color: var(--muted); margin-left: 8px; font-family: var(--sans); }
+.skill-src a { color: #9cc0ff; }
+.skill-card.best { border-color: rgba(240,185,74,.3); }
+.skill-card summary b { font-weight: 600; }
+.skill-why { color: var(--text) !important; }
+.skill-meta { font-size: 11px !important; color: var(--faint) !important; }
 .model-row { display: flex; gap: 6px; align-items: center; }
 .model-row select { flex: 1; min-width: 0; }
 .model-row select[data-s=effort] { flex: 0 1 130px; }

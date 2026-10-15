@@ -1,0 +1,35 @@
+{
+  "$comment": "Origem e destaque de cada skill. 'melhor' = escolhida entre as mais respeitadas do GitHub para front-end e segurança. As cópias em skills/github/ são só texto (sem scripts), revisadas e fixadas no commit abaixo.",
+  "fontes": {
+    "anthropics/skills": { "autor": "Anthropic", "commit": "dbd4588f9e1033efb41dad4bef2f7947c8993d44", "licenca": "Apache-2.0" },
+    "openai/skills": { "autor": "OpenAI", "commit": "49f948faa9258a0c61caceaf225e179651397431", "licenca": "Apache-2.0" },
+    "trailofbits/skills": { "autor": "Trail of Bits", "commit": "1f68e03536f7980d4c0e6869596f708043a19443", "licenca": "CC-BY-SA-4.0" },
+    "vercel-labs/agent-skills": { "autor": "Vercel", "commit": "063bee94c3f4df8453406c830b0a7df0f2860278", "licenca": "MIT" },
+    "addyosmani/web-quality-skills": { "autor": "Addy Osmani (Google Chrome)", "commit": "afa8da942115f2961fdbfa80807ea0b232ff6c00", "licenca": "MIT" }
+  },
+  "skills": {
+    "frontend-design": { "categoria": "frontend", "melhor": true, "fonte": "anthropics/skills", "caminho": "skills/frontend-design", "porque": "Skill oficial da Anthropic para interfaces com identidade própria, tipografia e paleta pensadas, sem cara de template." },
+    "vercel-react-best-practices": { "categoria": "frontend", "melhor": true, "fonte": "vercel-labs/agent-skills", "caminho": "skills/react-best-practices", "porque": "Regras de desempenho de React e Next.js da engenharia da Vercel, com mais de 60 regras priorizadas." },
+    "accessibility": { "categoria": "frontend", "melhor": true, "fonte": "addyosmani/web-quality-skills", "caminho": "skills/accessibility", "porque": "Auditoria WCAG 2.2 completa: teclado, leitor de tela, contraste e ARIA." },
+    "core-web-vitals": { "categoria": "frontend", "melhor": true, "fonte": "addyosmani/web-quality-skills", "caminho": "skills/core-web-vitals", "porque": "LCP, INP e CLS com evidência de campo e de laboratório." },
+    "performance": { "categoria": "frontend", "melhor": true, "fonte": "addyosmani/web-quality-skills", "caminho": "skills/performance", "porque": "Carregamento, bundle, imagens, cache e renderização." },
+    "security-best-practices": { "categoria": "seguranca", "melhor": true, "fonte": "openai/skills", "caminho": "skills/.curated/security-best-practices", "porque": "Skill oficial da OpenAI: guias de segurança por framework (React, Vue, Next.js, Express, Django, FastAPI, Flask, Go)." },
+    "security-threat-model": { "categoria": "seguranca", "melhor": true, "fonte": "openai/skills", "caminho": "skills/.curated/security-threat-model", "porque": "Modelagem de ameaças baseada no próprio repositório: fronteiras de confiança, ativos e caminhos de abuso." },
+    "differential-review": { "categoria": "seguranca", "melhor": true, "fonte": "trailofbits/skills", "caminho": "plugins/differential-review/skills/differential-review", "porque": "Revisão de segurança de diffs da Trail of Bits: risco primeiro, histórico do git, raio de impacto e cobertura de testes." },
+    "sharp-edges": { "categoria": "seguranca", "melhor": true, "fonte": "trailofbits/skills", "caminho": "plugins/sharp-edges/skills/sharp-edges", "porque": "Encontra APIs e configurações perigosas ('armadilhas') que levam a falhas de segurança." },
+
+    "auditoria-seguranca": { "categoria": "seguranca", "fonte": "ai-office" },
+    "revisao-codigo": { "categoria": "geral", "fonte": "ai-office" },
+    "frontend-web": { "categoria": "frontend", "fonte": "ai-office" },
+    "backend-api": { "categoria": "geral", "fonte": "ai-office" },
+    "testes-web": { "categoria": "geral", "fonte": "ai-office" },
+    "analise-fria": { "categoria": "geral", "fonte": "ai-office" },
+    "economia-tokens": { "categoria": "geral", "fonte": "ai-office" }
+  },
+  "fora": [
+    { "nome": "web-design-guidelines (Vercel)", "motivo": "baixa as regras da internet a cada uso; conteúdo externo entraria no prompt sem revisão" },
+    { "nome": "supply-chain-risk-auditor (Trail of Bits)", "motivo": "depende de scripts executáveis" },
+    { "nome": "webapp-testing (Anthropic) e playwright (OpenAI)", "motivo": "dependem de scripts e de navegador instalado" },
+    { "nome": "insecure-defaults (Trail of Bits)", "motivo": "é um comando, não uma skill; sharp-edges cobre o mesmo tema" }
+  ]
+}

@@ -10,7 +10,7 @@ import { defaultStats, mergeSettings } from './store.js';
 import { hostAllowed, localOnly, originAllowed } from './security.js';
 
 /** Monta o app HTTP + WebSocket em volta de um Orchestrator. */
-export function createApp({ store, orchestrator, skills, publicDir, billing = null, extraHosts = [] }) {
+export function createApp({ store, orchestrator, skills, publicDir, billing = null, skillsFora = [], extraHosts = [] }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(localOnly({ extraHosts }));
@@ -36,7 +36,8 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     billing: billing?.state ?? {},
     workers: orchestrator.workersInfo(),
     models: orchestrator.models,
-    skills: skills.map(({ name, description }) => ({ name, description })),
+    skills: skills.map(({ body, dir, ...meta }) => meta),
+    skillsFora,
     roles: Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, defaultSkills: v.defaultSkills }])),
     templates: Object.fromEntries(Object.entries(TEMPLATES).map(([k, v]) => [k, v.label])),
     running: store.lines.filter((l) => orchestrator.isRunning(l.id)).map((l) => l.id),
@@ -48,7 +49,8 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
   app.get('/api/skills/:name', (req, res) => {
     const s = skills.find((k) => k.name === req.params.name);
     if (!s) return res.status(404).json({ error: 'Skill não encontrada' });
-    res.json(s);
+    const { dir, ...pub } = s;
+    res.json(pub);
   });
 
   app.get('/api/templates/:key', (req, res) => {

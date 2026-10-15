@@ -1037,7 +1037,10 @@ export class Office {
     ctx.font = '600 12px Inter, system-ui, sans-serif';
     const label = this.clip(ctx, text, Math.max(60, r.w * this.cam.z - 70));
     const tw = ctx.measureText(label).width;
-    const extra = (statusColor ? 14 : 0) + (dots.length ? dots.length * 9 + 2 : 0) + (badge ? 22 : 0);
+    ctx.font = '600 10px Inter, system-ui, sans-serif';
+    const badgeW = badge ? Math.max(16, ctx.measureText(badge).width + 8) + 6 : 0;
+    ctx.font = '600 12px Inter, system-ui, sans-serif';
+    const extra = (statusColor ? 14 : 0) + (dots.length ? dots.length * 9 + 2 : 0) + badgeW;
     const w = tw + 20 + extra;
     const h = 22;
     const cx = this.sx(r.x + r.w / 2);
@@ -1065,11 +1068,12 @@ export class Office {
       x += 9;
     }
     if (badge) {
-      this.pill(ctx, x + 2, y + 4, 16, h - 8, 'rgba(255,255,255,.14)');
       ctx.font = '600 10px Inter, system-ui, sans-serif';
+      const bw = Math.max(16, ctx.measureText(badge).width + 8);
+      this.pill(ctx, x + 2, y + 4, bw, h - 8, 'rgba(255,255,255,.14)');
       ctx.fillStyle = '#d8dbe6';
       ctx.textAlign = 'center';
-      ctx.fillText(badge, x + 10, y + h / 2 + 0.5);
+      ctx.fillText(badge, x + 2 + bw / 2, y + h / 2 + 0.5);
     }
   }
 
@@ -1150,7 +1154,9 @@ export class Office {
       } else if (r.kind === 'new') {
         this.roomTag(ctx, r, '+ Nova linha');
       } else {
-        this.roomTag(ctx, r, r.kind === 'skills' ? `📚 ${r.title}` : `☕ ${r.title}`);
+        const best = this.skills.filter((s) => s.melhor).length;
+        if (r.kind === 'skills') this.roomTag(ctx, r, `📚 ${r.title}`, { badge: best ? `⭐ ${best}` : null });
+        else this.roomTag(ctx, r, `☕ ${r.title}`);
       }
     }
     if (z < 0.75) return; // longe demais para crachás e balões

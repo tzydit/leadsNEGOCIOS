@@ -374,7 +374,7 @@ function stepCard(s, i, n, last) {
     <label for="ins-${i}">${esc(wname(s.worker))}: ${ROLE_HINT[s.role] ?? 'instrução'}</label>
     <textarea id="ins-${i}" data-s="instruction" rows="3" placeholder="Ex.: Crie a página de login com validação no backend…">${esc(s.instruction)}</textarea>
     <div class="skills">
-      ${S.data.skills.map((k) => `<button type="button" class="skill-chip" data-skill="${esc(k.name)}" aria-pressed="${s.skills.includes(k.name)}" title="${esc(k.description)}">${esc(k.name)}</button>`).join('')}
+      ${skillChips(s)}
     </div>
     <div class="model-row">
       <label for="mdl-${i}">Modelo</label>
@@ -562,9 +562,50 @@ function settingsHtml() {
   </form>`;
 }
 
+const CATEGORIAS = [
+  ['frontend', 'Front-end'],
+  ['seguranca', 'Segurança'],
+  ['geral', 'Geral'],
+];
+
+/** Chips de skills da etapa, agrupados por categoria, com as melhores primeiro. */
+function skillChips(step) {
+  return CATEGORIAS.map(([cat, label]) => {
+    const list = S.data.skills.filter((k) => k.categoria === cat);
+    if (!list.length) return '';
+    const chips = list
+      .map((k) => {
+        const tip = `${k.melhor ? `⭐ Melhor do GitHub · ${k.autor} · ${k.licenca}\n` : 'Skill do AI Office\n'}${k.porque || k.description}\n~${fmt(k.tokens)} tokens no prompt`;
+        return `<button type="button" class="skill-chip${k.melhor ? ' best' : ''}" data-skill="${esc(k.name)}" aria-pressed="${step.skills.includes(k.name)}" title="${esc(tip)}">${k.melhor ? '⭐ ' : ''}${esc(k.name)}</button>`;
+      })
+      .join('');
+    return `<div class="skill-group"><span class="skill-cat">${label}</span>${chips}</div>`;
+  }).join('');
+}
+
+function skillCard(k) {
+  const head = k.melhor
+    ? `<span class="best-badge">⭐ Melhor do GitHub</span><span class="skill-src">${esc(k.autor)} · ${esc(k.licenca)}${k.url ? ` · <a href="${esc(k.url)}" target="_blank" rel="noopener noreferrer">ver origem</a>` : ''}</span>`
+    : `<span class="skill-src">AI Office · escrita para este projeto</span>`;
+  return `<details class="skill-card${k.melhor ? ' best' : ''}" data-skill-card="${esc(k.name)}">
+    <summary><b>${esc(k.name)}</b>${head}</summary>
+    ${k.porque ? `<p class="skill-why">${esc(k.porque)}</p>` : ''}
+    <p>${esc(k.description)}</p>
+    <p class="skill-meta">~${fmt(k.tokens)} tokens no prompt${k.hasFiles ? ' · traz arquivos de referência (lidos só quando precisa)' : ''}</p>
+    <pre>carregando…</pre>
+  </details>`;
+}
+
 function skillsHtml() {
-  return `<p class="compare-note" style="margin-top:0">Ative as skills por etapa no painel da linha. Elas vão dentro do prompt da etapa. Para usar no Claude Code e no Codex em todas as sessões, rode <code>npm run skills:global</code> (ou <code>npm run skills:install -- /caminho/do/projeto</code> para um projeto só).</p>
-  ${S.data.skills.map((k) => `<details class="skill-card" data-skill-card="${esc(k.name)}"><summary>${esc(k.name)}</summary><p>${esc(k.description)}</p><pre>carregando…</pre></details>`).join('')}`;
+  const best = S.data.skills.filter((k) => k.melhor);
+  const own = S.data.skills.filter((k) => !k.melhor);
+  const section = (title, list) => (list.length ? `<h3>${title}</h3>${list.map(skillCard).join('')}` : '');
+  const fora = (S.data.skillsFora ?? []).map((f) => `<li><b>${esc(f.nome)}</b>: ${esc(f.motivo)}</li>`).join('');
+  return `<p class="compare-note" style="margin-top:0">Ative as skills em cada etapa da linha; elas entram no prompt daquela etapa. As marcadas com ⭐ são as mais respeitadas do GitHub para front-end e segurança, copiadas aqui só como texto (sem scripts), com licença e o commit exato de origem. Para usar todas no Claude Code e no Codex em qualquer sessão: <code>npm run skills:global</code>.</p>
+    ${section('⭐ Melhores do GitHub — Front-end', best.filter((k) => k.categoria === 'frontend'))}
+    ${section('⭐ Melhores do GitHub — Segurança', best.filter((k) => k.categoria === 'seguranca'))}
+    ${section('Do AI Office', own)}
+    ${fora ? `<h3>Avaliadas e deixadas de fora</h3><ul class="compare-note">${fora}</ul>` : ''}`;
 }
 
 // ---- eventos --------------------------------------------------------------

@@ -39,7 +39,10 @@ function targets() {
   return { 'Claude Code': path.join(root, '.claude', 'skills'), Codex: path.join(root, '.agents', 'skills') };
 }
 
-const skills = fs.readdirSync(SRC).filter((n) => fs.existsSync(path.join(SRC, n, 'SKILL.md')));
+// Skills do AI Office (skills/<nome>) e as melhores do GitHub (skills/github/<nome>).
+const skills = [SRC, path.join(SRC, 'github')]
+  .filter((root) => fs.existsSync(root))
+  .flatMap((root) => fs.readdirSync(root).filter((n) => fs.existsSync(path.join(root, n, 'SKILL.md'))).map((n) => ({ name: n, dir: path.join(root, n) })));
 const dryRun = flag('--dry-run');
 const force = flag('--force');
 
@@ -52,7 +55,7 @@ for (const [agent, dest] of Object.entries(targets())) {
     continue;
   }
   const done = [];
-  for (const name of skills) {
+  for (const { name, dir } of skills) {
     const to = path.join(dest, name);
     // Uma skill com o mesmo nome que não veio do AI Office é do usuário: não sobrescreve.
     if (fs.existsSync(to) && !fs.existsSync(path.join(to, MARKER)) && !force) {
@@ -60,8 +63,9 @@ for (const [agent, dest] of Object.entries(targets())) {
       continue;
     }
     if (!dryRun) {
-      fs.mkdirSync(to, { recursive: true });
-      fs.copyFileSync(path.join(SRC, name, 'SKILL.md'), path.join(to, 'SKILL.md'));
+      // Pasta inteira: as skills do GitHub trazem referências e a licença junto.
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.cpSync(dir, to, { recursive: true });
       fs.writeFileSync(path.join(to, MARKER), JSON.stringify({ source: 'ai-office' }) + '\n');
     }
     done.push(name);
