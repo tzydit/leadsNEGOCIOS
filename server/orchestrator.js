@@ -123,16 +123,33 @@ export class Orchestrator extends EventEmitter {
     };
   }
 
-  start(lineId) {
+  /** Mudanças que ficaram pendentes na última execução (o que o revisor pediu). */
+  pendingOf(run) {
+    if (run?.status !== 'done' || run.outcome !== 'mudancas_pendentes') return null;
+    if (run.pending) return run.pending;
+    const a = [...(run.attempts ?? [])].reverse().find((x) => x.verdict === 'MUDANCAS_NECESSARIAS');
+    return a ? { step: a.step, worker: a.worker, findings: a.findings ?? extractFindings(a.finalText) } : null;
+  }
+
+  /** Roda a linha. Com fix = { worker, model, effort }, só aplica as mudanças pendentes. */
+  start(lineId, { fix = null } = {}) {
     const line = this.store.lines.find((l) => l.id === lineId);
     if (!line) throw new Error('Linha não encontrada');
     if (this.active.has(lineId)) throw new Error('A linha já está rodando');
     if (!line.steps.length) throw new Error('A linha não tem etapas');
+    const prev = line.run;
+    const pending = fix ? this.pendingOf(prev) : null;
+    if (fix && !pending) throw new Error('Não há mudanças pendentes para corrigir');
+    if (fix && !WORKERS[fix.worker]) throw new Error('Escolha quem vai corrigir');
+    if (pending && !line.steps[pending.step]) throw new Error('As etapas mudaram: rode a linha de novo');
     const ctl = { kill: null, stopped: false };
     this.active.set(lineId, ctl);
-    line.run = { status: 'running', startedAt: Date.now(), endedAt: null, round: 1, current: 0, attempts: [], log: [], dir: null, branch: null, base: null, notice: null, error: null, outcome: null };
+    line.run = {
+      status: 'running', startedAt: Date.now(), endedAt: null, round: fix ? (prev.round ?? 1) + 1 : 1, current: 0,
+      attempts: fix ? prev.attempts : [], log: [], dir: null, branch: null, base: null, notice: null, error: null, outcome: null, pending: null,
+    };
     this.touch(line, true);
-    const p = this.execute(line, ctl)
+    const p = this.execute(line, ctl, fix ? { fixer: fix, pending } : null)
       .catch((err) => {
         line.run.status = 'failed';
         line.run.error = err.message;
@@ -157,7 +174,7 @@ export class Orchestrator extends EventEmitter {
     return true;
   }
 
-  async execute(line, ctl) {
+  async execute(line, ctl, fix = null) {
     const run = line.run;
     const where = await this.resolveDir(line);
     run.dir = where.dir;
@@ -183,7 +200,8 @@ export class Orchestrator extends EventEmitter {
     }
     let ok = false;
     try {
-      await this.runSteps(line, ctl, where);
+      if (fix) await this.runFix(line, ctl, where, fix);
+      else await this.runSteps(line, ctl, where);
       ok = line.run.status === 'done';
     } finally {
       // Terminou a última validação: o site fica no ar para você conferir.
@@ -273,149 +291,218 @@ export class Orchestrator extends EventEmitter {
 
   async runSteps(line, ctl, where) {
     const run = line.run;
-    const settings = this.store.settings;
     let i = 0;
     let previous = null;
     let feedback = null;
     while (i < line.steps.length) {
       if (ctl.stopped) break;
-      let step = line.steps[i];
       run.current = i;
-      const mode = this.modeOf(step.worker);
-      const attempt = {
-        step: i,
-        worker: step.worker,
-        role: step.role,
-        round: run.round,
-        mode,
-        status: 'running',
-        activity: 'Chegando na mesa…',
-        startedAt: Date.now(),
-        endedAt: null,
-        usage: { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, costUsd: 0, model: '' },
-        cost: 0,
-        costExact: false,
-        // Economia medida: cache (tokens lidos do cache custam bem menos) e
-        // repasse (a próxima IA recebe só o RESUMO, não tudo o que a anterior escreveu).
-        saved: {
-          cache: 0,
-          cacheUsd: 0,
-          handoff: previous ? Math.max(0, (previous.usage?.output ?? 0) - Math.round((previous.summary ?? '').length / 4)) : 0,
-        },
-        verdict: null,
-        summary: '',
-        finalText: '',
-        error: null,
-      };
-      run.attempts.push(attempt);
-      this.touch(line, true);
-
-      const needsDiff = where.git && (VERDICT_ROLES.has(step.role) || step.role === 'analisar') && line.steps.slice(0, i).some((s) => s.role === 'executar');
-      const diff = needsDiff ? await getDiff(where.dir, where.base, settings.diffMaxChars) : null;
-      // Skills sempre ligadas para esta IA (ex.: caveman no Claude) entram em toda etapa dela.
-      step = { ...step, skills: [...new Set([...(step.skills ?? []), ...(settings.workers[step.worker].alwaysSkills ?? [])])] };
-      const wantsShots = step.skills.includes('captura-tela');
-      const shots = wantsShots ? await this.captureFor(line, `etapa${i + 1}-r${run.round}`) : null;
-      if (shots?.files?.length) attempt.captures = shots.files.map((f) => path.basename(f.path));
-      const capture = wantsShots ? { cmd: this.captureCmd(line), url: this.previews.get(line.id)?.url ?? line.preview?.url, files: shots.files.map((f) => f.path), problems: shots.problems, error: shots.error } : null;
-      const prompt = buildPrompt({ line, step, stepIndex: i, totalSteps: line.steps.length, skills: this.skills, previous, diff, baseCommit: where.base, feedback: step.role === 'executar' ? feedback : null, round: run.round, capture });
-      if (step.role === 'executar') feedback = null;
-      const chosen = [step.model || settings.workers[step.worker].model || 'modelo padrão', step.effort || settings.workers[step.worker].effort].filter(Boolean).join(' · ');
-      this.log(line, { step: i, worker: step.worker, kind: 'info', text: `${WORKERS[step.worker].name} começou: ${step.role} (${mode}) · ${chosen} · prompt ~${Math.round(prompt.length / 4)} tokens` });
-
-      const runner = mode === 'real' ? this.real[step.worker] : this.simulated;
-      const cfg = {
-        ...settings.workers[step.worker],
-        model: step.model || settings.workers[step.worker].model,
-        effort: step.effort || settings.workers[step.worker].effort,
-        skillsDir: (step.skills ?? []).some((n) => this.skills.find((k) => k.name === n)?.hasFiles) ? this.skillsDir : null,
-        screenshots: wantsShots ? { rule: `Bash(node "${this.screenshotScript}":*)`, dirs: [this.captureDir(line)], images: capture.files } : null,
-      };
-      const handle = runner({
-        prompt,
-        cwd: where.dir ?? process.cwd(),
-        role: step.role,
-        worker: step.worker,
-        round: run.round,
-        config: cfg,
-        onEvent: (ev) => {
-          if (ev.kind !== 'text') attempt.activity = clip(ev.text, 80);
-          else attempt.activity = 'Escrevendo resposta…';
-          this.log(line, { step: i, worker: step.worker, kind: ev.kind, text: ev.kind === 'text' ? String(ev.text).slice(0, 4000) : ev.text });
-          this.touch(line);
-        },
-        onUsage: (u) => {
-          attempt.usage = u;
-          this.priceAttempt(attempt);
-          this.touch(line);
-          if (line.tokenBudget > 0 && this.lineTokens(line) > line.tokenBudget && !ctl.budget) {
-            ctl.budget = true;
-            ctl.kill?.();
-          }
-        },
-      });
-      ctl.kill = handle.kill;
-      const res = await handle.done;
-      ctl.kill = null;
-
-      attempt.endedAt = Date.now();
-      attempt.usage = res.usage ?? attempt.usage;
-      this.priceAttempt(attempt);
-      attempt.finalText = String(res.finalText ?? '').slice(0, 20000);
-      attempt.summary = extractSummary(res.finalText, settings.handoffMaxChars);
-      attempt.verdict = VERDICT_ROLES.has(step.role) ? parseVerdict(res.finalText) : null;
-      attempt.activity = '';
-      this.addStats(step.worker, attempt);
-
-      if (ctl.budget) {
-        attempt.status = 'stopped';
-        run.status = 'budget';
-        run.error = `Orçamento de ${line.tokenBudget.toLocaleString('pt-BR')} tokens excedido.`;
-        this.log(line, { kind: 'error', text: run.error });
-        return;
-      }
-      if (ctl.stopped) {
-        attempt.status = 'stopped';
-        break;
-      }
-      if (!res.ok) {
-        attempt.status = 'failed';
-        attempt.error = res.error;
-        this.store.stats[step.worker].falhas += 1;
-        run.status = 'failed';
-        run.error = `${WORKERS[step.worker].name} falhou: ${res.error}`;
-        this.log(line, { step: i, worker: step.worker, kind: 'error', text: run.error });
-        return;
-      }
-      attempt.status = 'done';
-      this.log(line, { step: i, worker: step.worker, kind: 'done', text: `${WORKERS[step.worker].name} terminou${attempt.verdict ? ` · ${attempt.verdict}` : ''} · ${total(attempt.usage).toLocaleString('pt-BR')} tokens` });
-
-      if (attempt.verdict) {
-        this.store.stats[step.worker].revisoes += 1;
-        const exec = [...run.attempts].reverse().find((a) => a.role === 'executar' && a.status === 'done');
-        if (exec && step.role === 'revisar') this.store.stats[exec.worker][attempt.verdict === 'APROVADO' ? 'aprovadas' : 'reprovadas'] += 1;
-      }
+      // Voltando com correções: quem corrige pode ser outra IA/modelo (loop.fixer).
+      const fixing = Boolean(feedback && line.steps[i].role === 'executar');
+      const step = fixing ? this.fixerStep(line, line.steps[i]) : line.steps[i];
+      const { attempt, stop } = await this.runAttempt(line, ctl, where, step, i, { previous, feedback: fixing ? feedback : null, fix: fixing });
+      if (fixing) feedback = null;
+      if (stop === 'stopped') break;
+      if (stop) return;
+      this.countVerdict(run, step, attempt);
 
       if (attempt.verdict === 'MUDANCAS_NECESSARIAS') {
         let back = -1;
         for (let j = i - 1; j >= 0; j--) if (line.steps[j].role === 'executar') { back = j; break; }
         if (line.loop?.enabled && back >= 0 && run.round < line.loop.maxRounds) {
           run.round += 1;
-          feedback = { worker: step.worker, text: extractFindings(res.finalText) };
-          this.log(line, { kind: 'info', text: `Revisor pediu mudanças → volta para a etapa ${back + 1} (rodada ${run.round})` });
+          feedback = { worker: step.worker, text: attempt.findings };
+          const fx = this.fixerStep(line, line.steps[back]);
+          this.log(line, { kind: 'info', text: `Revisor pediu mudanças → ${WORKERS[fx.worker].name} corrige na etapa ${back + 1} (rodada ${run.round})` });
           previous = null;
           i = back;
           continue;
         }
         run.outcome = 'mudancas_pendentes';
+        run.pending = { step: i, worker: step.worker, findings: attempt.findings };
       } else if (attempt.verdict === 'APROVADO') {
         run.outcome = 'aprovado';
+        run.pending = null;
       }
       previous = attempt;
       i += 1;
     }
-    run.status = ctl.stopped ? 'stopped' : 'done';
-    if (ctl.stopped) this.log(line, { kind: 'info', text: 'Linha interrompida pelo usuário' });
+    if (ctl.stopped) return this.finishStopped(line);
+    run.status = 'done';
+  }
+
+  /** Etapa de correção: a execução original, com a IA/modelo escolhidos para corrigir. */
+  fixerStep(line, base, fixer = line.loop?.fixer) {
+    if (!fixer?.worker) return base;
+    const same = fixer.worker === base.worker;
+    return { ...base, worker: fixer.worker, model: fixer.model || (same ? base.model : ''), effort: fixer.effort || (same ? base.effort : '') };
+  }
+
+  countVerdict(run, step, attempt) {
+    if (!attempt.verdict) return;
+    this.store.stats[step.worker].revisoes += 1;
+    const exec = [...run.attempts].reverse().find((a) => a.role === 'executar' && a.status === 'done');
+    if (exec && step.role === 'revisar') this.store.stats[exec.worker][attempt.verdict === 'APROVADO' ? 'aprovadas' : 'reprovadas'] += 1;
+  }
+
+  finishStopped(line) {
+    line.run.status = 'stopped';
+    this.log(line, { kind: 'info', text: 'Linha interrompida pelo usuário' });
+  }
+
+  /**
+   * "Corrigir com…": a linha terminou com mudanças pendentes; a IA escolhida
+   * aplica os apontamentos e quem pediu as mudanças revisa de novo.
+   */
+  async runFix(line, ctl, where, { fixer, pending }) {
+    const run = line.run;
+    const revIdx = pending.step;
+    let back = -1;
+    for (let j = revIdx - 1; j >= 0; j--) if (line.steps[j].role === 'executar') { back = j; break; }
+    const base = back >= 0
+      ? line.steps[back]
+      : { worker: fixer.worker, role: 'executar', instruction: 'Aplique as correções apontadas pelo revisor, sem refazer o que já está certo.', skills: ['economia-tokens'], model: '', effort: '' };
+    const step = this.fixerStep(line, base, fixer);
+    const at = back >= 0 ? back : revIdx;
+    this.log(line, { kind: 'info', text: `🔧 ${WORKERS[step.worker].name} vai aplicar as mudanças pedidas (rodada ${run.round})` });
+    run.current = at;
+    const fixed = await this.runAttempt(line, ctl, where, step, at, { feedback: { worker: pending.worker, text: pending.findings }, fix: true });
+    if (fixed.stop === 'stopped' || (!fixed.stop && ctl.stopped)) return this.finishStopped(line);
+    if (fixed.stop) return;
+    // quem pediu as mudanças confere de novo
+    const rev = line.steps[revIdx];
+    run.current = revIdx;
+    const again = await this.runAttempt(line, ctl, where, rev, revIdx, { previous: fixed.attempt });
+    if (again.stop === 'stopped') return this.finishStopped(line);
+    if (again.stop) return;
+    this.countVerdict(run, rev, again.attempt);
+    if (again.attempt.verdict === 'MUDANCAS_NECESSARIAS') {
+      run.outcome = 'mudancas_pendentes';
+      run.pending = { step: revIdx, worker: rev.worker, findings: again.attempt.findings };
+    } else {
+      run.outcome = again.attempt.verdict === 'APROVADO' ? 'aprovado' : null;
+      run.pending = null;
+    }
+    run.status = 'done';
+  }
+
+  /**
+   * Roda uma etapa (uma tentativa). Devolve { attempt, res, stop } com stop
+   * 'budget' | 'stopped' | 'failed' | null.
+   */
+  async runAttempt(line, ctl, where, step, i, { previous = null, feedback = null, fix = false } = {}) {
+    const run = line.run;
+    const settings = this.store.settings;
+    const mode = this.modeOf(step.worker);
+    const attempt = {
+      step: i,
+      worker: step.worker,
+      role: step.role,
+      round: run.round,
+      mode,
+      status: 'running',
+      activity: 'Chegando na mesa…',
+      startedAt: Date.now(),
+      endedAt: null,
+      usage: { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, costUsd: 0, model: '' },
+      cost: 0,
+      costExact: false,
+      // Economia medida: cache (tokens lidos do cache custam bem menos) e
+      // repasse (a próxima IA recebe só o RESUMO, não tudo o que a anterior escreveu).
+      saved: {
+        cache: 0,
+        cacheUsd: 0,
+        handoff: previous ? Math.max(0, (previous.usage?.output ?? 0) - Math.round((previous.summary ?? '').length / 4)) : 0,
+      },
+      verdict: null,
+      summary: '',
+      finalText: '',
+      error: null,
+      ...(fix ? { fix: true } : {}),
+    };
+    run.attempts.push(attempt);
+    this.touch(line, true);
+
+    const needsDiff = where.git && (VERDICT_ROLES.has(step.role) || step.role === 'analisar') && (line.steps.slice(0, i).some((s) => s.role === 'executar') || run.attempts.some((a) => a.fix));
+    const diff = needsDiff ? await getDiff(where.dir, where.base, settings.diffMaxChars) : null;
+    // Skills sempre ligadas para esta IA (ex.: caveman no Claude) entram em toda etapa dela.
+    step = { ...step, skills: [...new Set([...(step.skills ?? []), ...(settings.workers[step.worker].alwaysSkills ?? [])])] };
+    const wantsShots = step.skills.includes('captura-tela');
+    const shots = wantsShots ? await this.captureFor(line, `etapa${i + 1}-r${run.round}`) : null;
+    if (shots?.files?.length) attempt.captures = shots.files.map((f) => path.basename(f.path));
+    const capture = wantsShots ? { cmd: this.captureCmd(line), url: this.previews.get(line.id)?.url ?? line.preview?.url, files: shots.files.map((f) => f.path), problems: shots.problems, error: shots.error } : null;
+    const prompt = buildPrompt({ line, step, stepIndex: i, totalSteps: line.steps.length, skills: this.skills, previous, diff, baseCommit: where.base, feedback, round: run.round, capture });
+    const chosen = [step.model || settings.workers[step.worker].model || 'modelo padrão', step.effort || settings.workers[step.worker].effort].filter(Boolean).join(' · ');
+    this.log(line, { step: i, worker: step.worker, kind: 'info', text: `${WORKERS[step.worker].name} começou: ${step.role} (${mode}) · ${chosen} · prompt ~${Math.round(prompt.length / 4)} tokens` });
+
+    const runner = mode === 'real' ? this.real[step.worker] : this.simulated;
+    const cfg = {
+      ...settings.workers[step.worker],
+      model: step.model || settings.workers[step.worker].model,
+      effort: step.effort || settings.workers[step.worker].effort,
+      skillsDir: (step.skills ?? []).some((n) => this.skills.find((k) => k.name === n)?.hasFiles) ? this.skillsDir : null,
+      screenshots: wantsShots ? { rule: `Bash(node "${this.screenshotScript}":*)`, dirs: [this.captureDir(line)], images: capture.files } : null,
+    };
+    const handle = runner({
+      prompt,
+      cwd: where.dir ?? process.cwd(),
+      role: step.role,
+      worker: step.worker,
+      round: run.round,
+      config: cfg,
+      onEvent: (ev) => {
+        if (ev.kind !== 'text') attempt.activity = clip(ev.text, 80);
+        else attempt.activity = 'Escrevendo resposta…';
+        this.log(line, { step: i, worker: step.worker, kind: ev.kind, text: ev.kind === 'text' ? String(ev.text).slice(0, 4000) : ev.text });
+        this.touch(line);
+      },
+      onUsage: (u) => {
+        attempt.usage = u;
+        this.priceAttempt(attempt);
+        this.touch(line);
+        if (line.tokenBudget > 0 && this.lineTokens(line) > line.tokenBudget && !ctl.budget) {
+          ctl.budget = true;
+          ctl.kill?.();
+        }
+      },
+    });
+    ctl.kill = handle.kill;
+    const res = await handle.done;
+    ctl.kill = null;
+
+    attempt.endedAt = Date.now();
+    attempt.usage = res.usage ?? attempt.usage;
+    this.priceAttempt(attempt);
+    attempt.finalText = String(res.finalText ?? '').slice(0, 20000);
+    attempt.summary = extractSummary(res.finalText, settings.handoffMaxChars);
+    attempt.verdict = VERDICT_ROLES.has(step.role) ? parseVerdict(res.finalText) : null;
+    if (attempt.verdict === 'MUDANCAS_NECESSARIAS') attempt.findings = extractFindings(res.finalText);
+    attempt.activity = '';
+    this.addStats(step.worker, attempt);
+
+    if (ctl.budget) {
+      attempt.status = 'stopped';
+      run.status = 'budget';
+      run.error = `Orçamento de ${line.tokenBudget.toLocaleString('pt-BR')} tokens excedido.`;
+      this.log(line, { kind: 'error', text: run.error });
+      return { attempt, res, stop: 'budget' };
+    }
+    if (ctl.stopped) {
+      attempt.status = 'stopped';
+      return { attempt, res, stop: 'stopped' };
+    }
+    if (!res.ok) {
+      attempt.status = 'failed';
+      attempt.error = res.error;
+      this.store.stats[step.worker].falhas += 1;
+      run.status = 'failed';
+      run.error = `${WORKERS[step.worker].name} falhou: ${res.error}`;
+      this.log(line, { step: i, worker: step.worker, kind: 'error', text: run.error });
+      return { attempt, res, stop: 'failed' };
+    }
+    attempt.status = 'done';
+    this.log(line, { step: i, worker: step.worker, kind: 'done', text: `${WORKERS[step.worker].name} terminou${attempt.verdict ? ` · ${attempt.verdict}` : ''} · ${total(attempt.usage).toLocaleString('pt-BR')} tokens` });
+    return { attempt, res, stop: null };
   }
 
   lineTokens(line) {

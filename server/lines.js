@@ -62,6 +62,16 @@ const validOr = (v, re, what) => {
   return v;
 };
 
+/** Quem corrige quando o revisor pede mudanças ('' = quem executou). */
+export function sanitizeFixer(f) {
+  const worker = WORKERS[f?.worker] ? f.worker : '';
+  return {
+    worker,
+    model: worker ? validOr(str(f?.model, 80).trim(), MODEL_RE, 'modelo') : '',
+    effort: worker ? validOr(str(f?.effort, 16).trim(), EFFORT_RE, 'raciocínio') : '',
+  };
+}
+
 /** Valida e normaliza a configuração de uma linha vinda do cliente. */
 export function sanitizeLine(input, knownSkills) {
   const out = {};
@@ -78,6 +88,7 @@ export function sanitizeLine(input, knownSkills) {
     out.loop = {
       enabled: Boolean(input.loop?.enabled),
       maxRounds: Math.min(5, Math.max(1, Math.floor(Number(input.loop?.maxRounds) || 1))),
+      fixer: sanitizeFixer(input.loop?.fixer),
     };
   }
   if (input.steps !== undefined) {
@@ -107,7 +118,7 @@ export function newLine({ id, index, template = 'claude-faz-codex-revisa', workd
     useWorktree: true,
     tokenBudget: 0,
     preview: { url: '', command: '' },
-    loop: { ...t.loop },
+    loop: { ...t.loop, fixer: { worker: '', model: '', effort: '' } },
     steps: t.steps().map((s) => ({ ...s, model: '', effort: '' })),
     run: null,
   };

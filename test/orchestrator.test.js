@@ -34,7 +34,7 @@ test('ciclo de revisão: revisor pede mudanças, executor corrige, revisor aprov
   assert.equal(store.stats.claude.reprovadas, 1);
   assert.equal(store.stats.claude.aprovadas, 1);
   assert.equal(store.stats.codex.revisoes, 2);
-  assert.ok(line.run.log.some((e) => /volta para a etapa 1/.test(e.text)));
+  assert.ok(line.run.log.some((e) => /corrige na etapa 1/.test(e.text)));
 });
 
 test('sem ciclo, mudanças pedidas ficam pendentes', async () => {
@@ -157,4 +157,59 @@ test('skills sempre ligadas da IA entram no prompt de toda etapa dela', async ()
   assert.equal(claude[0], 'claude');
   assert.match(claude[1], /skill: caveman/);
   assert.doesNotMatch(codex[1], /skill: caveman/);
+});
+
+test('ciclo com "quem corrige": o Codex corrige no lugar do Claude, com o modelo escolhido', async () => {
+  const seen = [];
+  const sim = createSimulatedRunner({ stepMs: 1, decide: ({ round }) => (round === 1 ? 'MUDANCAS_NECESSARIAS' : 'APROVADO') });
+  const simulated = (args) => {
+    seen.push({ worker: args.worker, role: args.role, model: args.config.model, prompt: args.prompt });
+    return sim(args);
+  };
+  const { orch, line } = setup({ runners: { simulated }, line: { loop: { enabled: true, maxRounds: 2, fixer: { worker: 'codex', model: 'gpt-5.5', effort: 'high' } } } });
+  await orch.start('l1');
+  assert.deepEqual(line.run.attempts.map((a) => `${a.worker}:${a.role}${a.fix ? ':fix' : ''}`), ['claude:executar', 'codex:revisar', 'codex:executar:fix', 'codex:revisar']);
+  assert.equal(seen[2].model, 'gpt-5.5');
+  assert.match(seen[2].prompt, /Correções pedidas pelo revisor/);
+  assert.equal(line.run.outcome, 'aprovado');
+  assert.ok(line.run.log.some((e) => /Codex corrige na etapa 1/.test(e.text)));
+});
+
+test('mudanças pendentes ficam visíveis e "Corrigir com" aplica e revisa de novo', async () => {
+  let fixed = false;
+  const sim = createSimulatedRunner({ stepMs: 1, decide: () => (fixed ? 'APROVADO' : 'MUDANCAS_NECESSARIAS') });
+  const seen = [];
+  const simulated = (args) => {
+    seen.push({ worker: args.worker, role: args.role, model: args.config.model, prompt: args.prompt });
+    if (args.role === 'executar' && seen.length > 2) fixed = true;
+    return sim(args);
+  };
+  const { orch, line } = setup({ runners: { simulated }, line: { loop: { enabled: false, maxRounds: 1 } } });
+  assert.throws(() => orch.start('l1', { fix: { worker: 'claude' } }), /Não há mudanças pendentes/);
+  await orch.start('l1');
+  assert.equal(line.run.outcome, 'mudancas_pendentes');
+  assert.equal(line.run.pending.step, 1);
+  assert.equal(line.run.pending.worker, 'codex');
+  assert.ok(line.run.pending.findings.length > 10);
+  assert.doesNotMatch(line.run.pending.findings, /VEREDITO/);
+  await orch.start('l1', { fix: { worker: 'claude', model: 'claude-haiku-5-5', effort: '' } });
+  assert.deepEqual(line.run.attempts.map((a) => `${a.worker}:${a.role}${a.fix ? ':fix' : ''}`), ['claude:executar', 'codex:revisar', 'claude:executar:fix', 'codex:revisar']);
+  assert.equal(seen[2].model, 'claude-haiku-5-5');
+  assert.match(seen[2].prompt, /Correções pedidas pelo revisor \(Codex\)/);
+  assert.equal(line.run.round, 2);
+  assert.equal(line.run.status, 'done');
+  assert.equal(line.run.outcome, 'aprovado');
+  assert.equal(line.run.pending, null);
+});
+
+test('auditoria sem etapa de execução: "Corrigir com" cria a correção e o auditor confere', async () => {
+  const sim = createSimulatedRunner({ stepMs: 1, decide: () => 'MUDANCAS_NECESSARIAS' });
+  const { orch, line } = setup({ runners: { simulated: sim }, template: 'auditoria-cruzada' });
+  await orch.start('l1');
+  const pend = line.run.pending;
+  assert.ok(pend);
+  await orch.start('l1', { fix: { worker: 'codex' } });
+  const last = line.run.attempts.slice(-2);
+  assert.deepEqual(last.map((a) => `${a.worker}:${a.role}`), ['codex:executar', `${line.steps[pend.step].worker}:${line.steps[pend.step].role}`]);
+  assert.equal(line.run.outcome, 'mudancas_pendentes');
 });

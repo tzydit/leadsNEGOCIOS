@@ -283,7 +283,51 @@ function renderHead(line) {
         ? `<a class="btn small view" href="${esc(line.previewUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(line.previewUrl)}">🌐 Ver resultado</a><button class="icon-btn small" data-act="preview-stop" aria-label="Desligar o site" title="Desligar o site"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>`
         : !running && line.run ? `<button class="btn small" data-act="preview" title="Sobe o site da pasta da linha e abre numa aba">🌐 Ver resultado</button>` : ''}
       <button class="btn ghost small" data-act="delete" ${running ? 'disabled' : ''} title="Remover linha">Remover</button>
-    </div>`;
+    </div>
+    ${running ? '' : pendingHtml(line)}`;
+}
+
+/** O que o revisor pediu na última execução (se a linha terminou com mudanças pendentes). */
+function pendingOf(run) {
+  if (run?.status !== 'done' || run.outcome !== 'mudancas_pendentes') return null;
+  if (run.pending) return run.pending;
+  const a = [...(run.attempts ?? [])].reverse().find((x) => x.verdict === 'MUDANCAS_NECESSARIAS');
+  return a ? { step: a.step, worker: a.worker, findings: a.findings ?? String(a.finalText ?? '').replace(/VEREDITO:.*$/gim, '').trim() } : null;
+}
+
+/** Quem corrige por padrão: o "quem corrige" da linha ou quem executou. */
+function fixChoice(line, p) {
+  const saved = UI.fix.get(line.id);
+  if (saved) return saved;
+  const f = line.loop?.fixer;
+  if (f?.worker) return { ...f };
+  const exec = line.steps.slice(0, p.step).reverse().find((s) => s.role === 'executar');
+  return { worker: exec?.worker ?? (p.worker === 'claude' ? 'codex' : 'claude'), model: exec?.model ?? '', effort: exec?.effort ?? '' };
+}
+
+function fixerSelects(attr, f, defaultWorker = null) {
+  const top = (w) => S.data.settings.workers[w];
+  return `<select ${attr}="worker" aria-label="Quem corrige">
+      ${defaultWorker ? `<option value="">${esc(defaultWorker)}</option>` : ''}
+      ${Object.keys(WORKER_STYLE).map((w) => `<option value="${w}" ${f.worker === w ? 'selected' : ''}>${esc(wname(w))}</option>`).join('')}
+    </select>
+    ${f.worker ? `<select ${attr}="model" aria-label="Modelo">${modelOptions(f.worker, f.model, `Modelo do topo (${modelLabel(f.worker, top(f.worker).model) || 'padrão'})`)}</select>
+    <select ${attr}="effort" aria-label="Esforço">${effortOptions(f.worker, f.model || top(f.worker).model, f.effort, 'Esforço do topo')}</select>` : ''}`;
+}
+
+function pendingHtml(line) {
+  const p = pendingOf(line.run);
+  if (!p) return '';
+  const f = fixChoice(line, p);
+  return `<div class="pending-box">
+    <div class="pb-head">↺ <b>${esc(wname(p.worker))}</b> pediu estas mudanças:</div>
+    <pre class="pb-text">${esc(p.findings || 'O revisor não detalhou. Veja a aba Ao vivo.')}</pre>
+    <div class="pb-fix">
+      <span>Corrigir com</span>
+      ${fixerSelects('data-pf', f)}
+      <button class="btn go small" data-act="fix">🔧 Corrigir</button>
+    </div>
+  </div>`;
 }
 
 function welcomeHtml() {
@@ -335,6 +379,10 @@ function stepsHtml(line) {
       </div>
       <label class="check inline"><input type="checkbox" data-f="loop.enabled" ${d.loop?.enabled ? 'checked' : ''}> Ciclo de revisão, até
         <input type="number" min="1" max="5" data-f="loop.maxRounds" value="${d.loop?.maxRounds ?? 2}" aria-label="Máximo de rodadas"> rodadas</label>
+      <div class="field full">
+        <label>Quem corrige quando o revisor pede mudanças</label>
+        <div class="fixer-row">${fixerSelects('data-fx', d.loop?.fixer ?? { worker: '' }, 'Quem executou')}</div>
+      </div>
       <div class="field">
         <label for="fPreview">Site de preview (para capturas no Chrome)</label>
         <input id="fPreview" type="text" data-f="preview.url" value="${esc(d.preview?.url ?? '')}" placeholder="http://localhost:5173">
@@ -688,6 +736,28 @@ function wirePanel() {
     if (!id || isRunning(id)) return;
     const t = e.target;
     if (t.dataset.f && t.type === 'checkbox') return mutate(id, (d) => setPath(d, t.dataset.f, t.checked));
+    // "Quem corrige" (config do ciclo) e "Corrigir com" (mudanças pendentes)
+    if (t.dataset.fx || t.dataset.pf) {
+      const key = t.dataset.fx || t.dataset.pf;
+      if (key === 'model' && t.value === '__custom__' && !askCustomModel(t)) return;
+      const apply = (f) => {
+        f[key] = t.value;
+        if (key === 'worker') {
+          f.model = '';
+          f.effort = '';
+        }
+        if (key === 'model' && f.effort && !effortsFor(f.worker, f.model || S.data.settings.workers[f.worker].model).includes(f.effort)) f.effort = '';
+      };
+      if (t.dataset.fx) {
+        mutate(id, (d) => apply((d.loop.fixer ??= { worker: '', model: '', effort: '' })));
+        return renderPanel();
+      }
+      const line = getLine(id);
+      const f = { ...fixChoice(line, pendingOf(line.run)) };
+      apply(f);
+      UI.fix.set(id, f);
+      return renderHead(line);
+    }
     if (t.dataset.act === 'template' && t.value) {
       const tpl = t.value;
       t.value = '';
@@ -754,6 +824,12 @@ function wirePanel() {
       renderPanel();
     } else if (act === 'stop') {
       await api('POST', `/api/lines/${id}/stop`);
+    } else if (act === 'fix') {
+      const line = getLine(id);
+      await api('POST', `/api/lines/${id}/fix`, fixChoice(line, pendingOf(line.run)));
+      UI.fix.delete(id);
+      S.tab = 'vivo';
+      renderPanel();
     } else if (act === 'preview') {
       // abre a aba já no clique (senão o navegador bloqueia) e depois aponta para o site
       const w = window.open('', '_blank');
@@ -1158,7 +1234,7 @@ const createLine = safe(async () => {
 const portraitCache = {};
 const portraitURL = (w) => (portraitCache[w] ??= sprite(w, 'portrait', 3).toDataURL());
 const letter = (w) => `<span class="letter" style="--wc:${WORKER_STYLE[w].color}">${WORKER_STYLE[w].letter}</span>`;
-const UI = { search: '', hide: new Set(), feedTimer: null };
+const UI = { search: '', hide: new Set(), feedTimer: null, fix: new Map() };
 
 function selectLine(id, { tab = null, focus = true } = {}) {
   if (S.selected !== id) S.diff = null;
@@ -1210,7 +1286,10 @@ function stepState(line, i) {
   if (last.status === 'running') return { dot: 'running', text: `${activityIcon(last.activity)} ${last.activity || 'trabalhando…'}`, active: true };
   if (last.status === 'failed') return { dot: 'failed', text: `⚠️ ${last.error || 'falhou'}` };
   if (last.status === 'stopped') return { dot: 'stopped', text: '■ parada' };
-  if (last.verdict === 'MUDANCAS_NECESSARIAS') return { dot: 'changes', text: '↺ pediu mudanças' };
+  if (last.verdict === 'MUDANCAS_NECESSARIAS') {
+    const first = String(last.findings ?? '').split('\n').map((x) => x.trim()).find((x) => x && !/^RESUMO:?$/i.test(x));
+    return { dot: 'changes', text: first ? `↺ ${first}` : '↺ pediu mudanças' };
+  }
   return { dot: 'done', text: last.verdict === 'APROVADO' ? '✔ aprovou' : '✔ concluída' };
 }
 

@@ -4,7 +4,7 @@ import { listFolders, pickFolderNative } from './folders.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
-import { MAX_STEPS, TEMPLATES, newLine, sanitizeLine } from './lines.js';
+import { MAX_STEPS, TEMPLATES, newLine, sanitizeFixer, sanitizeLine } from './lines.js';
 import { ROLES, WORKERS } from './prompts.js';
 import { EFFORT_RE, MODEL_RE } from './models.js';
 import { sanitizePricing } from './pricing.js';
@@ -143,6 +143,17 @@ export function createApp({ store, orchestrator, skills, publicDir, billing = nu
     if (!line) throw notFound();
     orchestrator.stopPreview(line.id);
     orchestrator.emit('line', orchestrator.publicLine(line));
+    res.json({ ok: true });
+  }));
+
+  // Terminou com mudanças pendentes: a IA/modelo escolhidos aplicam e o revisor confere.
+  app.post('/api/lines/:id/fix', wrap(async (req, res) => {
+    const line = getLine(req.params.id);
+    if (!line) throw notFound();
+    const fixer = sanitizeFixer(req.body ?? {});
+    if (!fixer.worker) throw new Error('Escolha quem vai corrigir');
+    orchestrator.start(line.id, { fix: fixer });
+    broadcast({ type: 'running', running: snapshot().running });
     res.json({ ok: true });
   }));
 

@@ -7,7 +7,8 @@ Você monta **linhas de trabalho** e escreve o que cada IA deve fazer em cada et
 do papel da etapa, com o nome da linha no crachá, e você acompanha ao vivo.
 
 - **Linhas em paralelo**: cada linha roda no seu próprio `git worktree`, então as duas IAs trabalham ao mesmo tempo sem se atropelar.
-- **Ciclo de revisão**: se o revisor responder `VEREDITO: MUDANCAS_NECESSARIAS`, o trabalho volta para quem executou junto com os apontamentos, até N rodadas.
+- **Ciclo de revisão**: se o revisor responder `VEREDITO: MUDANCAS_NECESSARIAS`, o trabalho volta com os apontamentos, até N rodadas. Em **Quem corrige** você escolhe se volta para quem executou ou para outra IA/modelo/esforço.
+- **Mudanças pendentes**: se acabarem as rodadas, a linha mostra exatamente o que o revisor pediu e o botão **🔧 Corrigir** com a IA, o modelo e o esforço que você escolher; depois quem pediu as mudanças revisa de novo.
 - **Skills de desenvolvimento web e segurança** ativadas por etapa (economia de tokens, revisão fria, auditoria OWASP, análise do projeto…).
 - **Economia de tokens**: a próxima IA recebe só o `RESUMO` da anterior e o diff (truncado), nunca a conversa inteira. Há orçamento de tokens por linha.
 - **Site no ar no fim**: terminada a última validação, o site da linha fica rodando e abre numa aba (**🌐 Ver resultado**).
