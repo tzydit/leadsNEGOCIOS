@@ -329,6 +329,7 @@ export class Office {
       }
       av = this.avatars.find((a) => a.worker === want.worker && !a.assign && !a.leaving) ?? this.spawn(want.worker, false);
       av.assign = want;
+      av.idle = null; // larga o café e vai trabalhar
     }
     // Sobrou mais de um ocioso do mesmo trabalhador? Os extras vão embora.
     for (const w of Object.keys(WORKER_STYLE)) {
@@ -364,9 +365,49 @@ export class Office {
       const i = a.assign.desk;
       if (room) return { loc: `${room.kind}:${i}`, room, x: room.x + DESKS[i % DESKS.length] + CHAIR_DX, y: room.y + SEAT_Y, seat: true };
     }
+    return this.idleTarget(a);
+  }
+
+  // ---- folga: o que cada um faz enquanto não tem tarefa --------------------
+
+  /** Lugares e atividades de folga (coordenadas do mundo). */
+  idleSpots() {
+    if (this._spots) return this._spots;
     const copa = this.rooms.find((r) => r.kind === 'copa');
-    const s = this.copaSpot(a);
-    return { loc: 'copa', room: copa, x: s.x, y: s.y };
+    const lib = this.rooms.find((r) => r.kind === 'skills');
+    const cor = null; // corredor: sem sala
+    const at = (room, dx, dy) => ({ room, loc: room ? room.kind : 'corridor', x: (room ? room.x : 0) + dx, y: (room ? room.y : 0) + dy });
+    this._spots = [
+      { key: 'cafe', ...at(copa, 20, 54), pose: 'cup', say: '☕ café' },
+      { key: 'agua', ...at(copa, 28, 70), pose: 'cup', say: '💧' },
+      { key: 'refri', ...at(copa, 161, 62), pose: 'cup', say: '🥤' },
+      { key: 'janela', ...at(copa, 128, 44), pose: 'stand', say: '🌤️' },
+      { key: 'mesa1', ...at(copa, 43, 96), pose: 'sitCup', say: '🍪' },
+      { key: 'mesa2', ...at(copa, 77, 96), pose: 'sitPhone', say: '📱' },
+      { key: 'mesa3', ...at(copa, 131, 96), pose: 'sitPhone', say: '🎧' },
+      { key: 'mesa4', ...at(copa, 165, 96), pose: 'sitCup', say: '☕' },
+      { key: 'estante1', ...at(lib, 46, 60), pose: 'read', say: 'skill' },
+      { key: 'estante2', ...at(lib, 162, 60), pose: 'read', say: 'skill' },
+      { key: 'poltrona1', ...at(lib, 55, 108), pose: 'nap', say: '💤' },
+      { key: 'poltrona2', ...at(lib, 155, 108), pose: 'sitRead', say: 'skill' },
+      { key: 'alongar', ...at(cor, this.colX[1] + 70, COR_Y + 8), pose: 'stretch', say: '🙆' },
+      { key: 'planta', ...at(cor, this.colX[1] + 22, COR_Y + 18), pose: 'stand', say: '🪴' },
+      { key: 'banco', ...at(cor, this.colX[0] + RW - 41, BY + RH + 16), pose: 'sitPhone', say: '📱' },
+    ];
+    return this._spots;
+  }
+
+  /** Mantém a atividade atual até o tempo dela acabar; depois sorteia outra livre. */
+  idleTarget(a) {
+    const cur = a.idle;
+    if (cur && (cur.arrivedAt == null || this.t - cur.arrivedAt < cur.dur)) return cur;
+    const taken = new Set(this.avatars.filter((o) => o !== a && o.idle).map((o) => o.idle.key));
+    const free = this.idleSpots().filter((sp) => !taken.has(sp.key) && sp.key !== cur?.key);
+    const sp = free[Math.floor(Math.random() * free.length)] ?? this.idleSpots()[0];
+    const skills = this.skills.filter((k) => k.melhor);
+    const book = sp.say === 'skill' ? `📖 ${(skills[Math.floor(Math.random() * skills.length)] ?? { name: 'skills' }).name}` : sp.say;
+    a.idle = { ...sp, idle: true, say: book, dur: 6 + Math.random() * 9, arrivedAt: null };
+    return a.idle;
   }
 
   /** Sala onde a linha está trabalhando agora. */
@@ -441,6 +482,7 @@ export class Office {
       const there = target.loc === a.loc && Math.abs(target.x - a.x) < 0.5 && Math.abs(target.y - a.y) < 0.5;
       if (there) {
         a.seated = Boolean(target.seat);
+        if (target.idle) target.arrivedAt ??= this.t;
         if (target.loc === 'exit') a.gone = true;
         continue;
       }
@@ -939,9 +981,16 @@ export class Office {
     // quem está em pé ou andando, por ordem de profundidade
     const standing = this.avatars.filter((a) => !a.seated).sort((p, q) => p.y - q.y);
     for (const a of standing) {
-      const pose = a.walking ? (Math.floor((t + a.phase) * 8) % 2 ? 'walkA' : 'walkB') : 'stand';
+      const resting = !a.walking && !a.assign && a.idle?.arrivedAt != null;
+      let pose = a.walking ? (Math.floor((t + a.phase) * 8) % 2 ? 'walkA' : 'walkB') : 'stand';
+      if (resting) {
+        pose = a.idle.pose;
+        if (pose === 'stretch' && Math.floor((t + a.phase) * 1.4) % 2) pose = 'stand';
+        if (pose === 'cup' && Math.floor((t + a.phase) * 0.5) % 3 === 0) pose = 'stand'; // pausa entre goles
+      }
       const img = sprite(a.worker, pose);
-      const bob = !a.walking && Math.floor((t + a.phase) * 1.2) % 2 ? 1 : 0;
+      const sitting = pose.startsWith('sit') || pose === 'nap';
+      const bob = !a.walking && !sitting && Math.floor((t + a.phase) * 1.2) % 2 ? 1 : 0;
       g.fillStyle = 'rgba(0,0,0,.22)';
       g.beginPath();
       g.ellipse(Math.round(a.x), Math.round(a.y), 7, 2.5, 0, 0, Math.PI * 2);
@@ -955,7 +1004,6 @@ export class Office {
         g.drawImage(img, 0, 0);
         g.restore();
       } else g.drawImage(img, px, py);
-      if (!a.walking && a.loc === 'copa' && !a.assign) R(g, a.x + 7, a.y - 11 + bob, 3, 4, '#f4efe2');
     }
     this.drawCar(g, t);
   }
@@ -1124,6 +1172,26 @@ export class Office {
     ctx.fillText(label, x + 26, y + h / 2 + 0.5);
   }
 
+  /** Balãozinho de folga: só o emoji (ou o nome da skill que está lendo). */
+  idleBubble(ctx, text, wx, wy) {
+    ctx.font = '500 11px Inter, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    const w = ctx.measureText(text).width + 14;
+    const h = 18;
+    const x = this.sx(wx) - w / 2;
+    const y = this.sy(wy) - h - 4;
+    this.pill(ctx, x, y, w, h, 'rgba(255,255,255,.95)');
+    ctx.fillStyle = 'rgba(255,255,255,.95)';
+    ctx.beginPath();
+    ctx.moveTo(this.sx(wx) - 4, y + h - 1);
+    ctx.lineTo(this.sx(wx) + 4, y + h - 1);
+    ctx.lineTo(this.sx(wx), y + h + 4);
+    ctx.fill();
+    ctx.fillStyle = '#23252e';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  }
+
   drawOverlay(ctx) {
     const z = this.cam.z;
     const active = this.current ?? [];
@@ -1161,6 +1229,9 @@ export class Office {
         this.bubble(ctx, a.assign.activity || 'trabalhando…', a.x, r.y + DESK_Y + 2 - SIT_H - up / z, Math.max(70, slot * 1.6 - 34));
       } else if (!a.walking || z >= 1.5) {
         this.nameTag(ctx, a, a.x, a.y + 3);
+        // de vez em quando mostra o que está fazendo na folga
+        const resting = !a.walking && !a.assign && a.idle?.arrivedAt != null;
+        if (resting && z >= 1 && Math.floor((this.t + a.phase) / 2.5) % 3 !== 2) this.idleBubble(ctx, a.idle.say, a.x, a.y - STAND_H - 2);
       }
     }
   }

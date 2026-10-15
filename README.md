@@ -16,6 +16,7 @@ do papel da etapa, com o nome da linha no crachá, e você acompanha ao vivo.
 
 ### Como é a tela
 
+- **Folga**: sem tarefa, os avatares tomam café, sentam na copa, mexem no celular, leem uma skill na biblioteca, cochilam na poltrona, se alongam e regam as plantas. Ao receber uma etapa, largam tudo e vão para a mesa.
 - **Mapa** em pixel art ocupando a tela: o prédio fica num terreno com árvores, calçada e rua. Arraste para mover, use a roda do mouse (ou `+`/`−`) para zoom e o botão de enquadrar para ver o prédio inteiro.
 - **Escritório** (à esquerda): busca (atalho `/`), filtro por IA e a lista de linhas, com o que cada IA está fazendo em cada etapa.
 - **Atividade** (embaixo): o feed de tudo o que as IAs fazem, em todas as linhas. Clique para abrir a linha.
