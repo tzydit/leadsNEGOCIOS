@@ -43,6 +43,57 @@ class Params(unittest.TestCase):
         self.assertEqual(app.slug("!!!"), "leads")
 
 
+class WaitJob(unittest.TestCase):
+    def setUp(self):
+        self.run = app.Run(app.parse_params({"keywords": "x", "bbox": CURITIBA}))
+        self.clock = [1000.0]
+        self.patches = [mock.patch.object(app.time, "time", lambda: self.clock[0]),
+                        mock.patch.object(app.time, "sleep", lambda s: self.clock.__setitem__(0, self.clock[0] + s))]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_partials_then_ok(self):
+        statuses = iter(["pending"] + ["working"] * 5 + ["ok"])
+        seen = []
+        with mock.patch.object(scrape, "req", lambda m, path, body=None: (200, json.dumps({"Status": next(statuses)}).encode())), \
+             mock.patch.object(scrape, "download_job", lambda jid: [{"title": "a"}] * (len(seen) + 1)):
+            self.assertEqual(app.wait_job(self.run, "j1", 600, seen.append), "ok")
+        self.assertGreaterEqual(len(seen), 2)               # baixou parciais enquanto trabalhava
+        self.assertEqual(self.run.job_status, "ok")
+        self.assertTrue(self.run.engine_ok)
+
+    def test_cancel(self):
+        self.run.cancel = True
+        self.assertEqual(app.wait_job(self.run, "j1", 600), "cancelled")
+
+    def test_engine_down(self):
+        def boom(*a, **k):
+            raise OSError("connection refused")
+        with mock.patch.object(scrape, "req", boom):
+            with self.assertRaises(RuntimeError) as cm:
+                app.wait_job(self.run, "j1", 600)
+        self.assertIn("parou de responder", str(cm.exception))
+        self.assertFalse(self.run.engine_ok)
+
+    def test_failed_and_timeout(self):
+        with mock.patch.object(scrape, "req", lambda *a, **k: (200, b'{"Status":"failed"}')):
+            with self.assertRaises(RuntimeError):
+                app.wait_job(self.run, "j1", 600)
+        with mock.patch.object(scrape, "req", lambda *a, **k: (200, b'{"Status":"working"}')), \
+             mock.patch.object(scrape, "download_job", lambda jid: []):
+            self.assertEqual(app.wait_job(self.run, "j1", 60), "timeout")
+
+    def test_snapshot_has_live_fields(self):
+        snap = self.run.snapshot()
+        for k in ("now", "started", "block_started", "job_status", "last_check", "engine_ok",
+                  "block_found", "last_progress", "avg_block", "keywords"):
+            self.assertIn(k, snap)
+
+
 class Server(unittest.TestCase):
     def setUp(self):
         self.engine = ThreadingHTTPServer(("127.0.0.1", 0), MockEngine)

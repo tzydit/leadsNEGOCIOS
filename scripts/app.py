@@ -60,6 +60,16 @@ class Run:
         self.summary = {}
         self.cancel = False
         self.lock = threading.Lock()
+        # Sinais de vida para a página: relógio do bloco, última resposta do motor, parciais.
+        self.started = time.time()
+        self.block_started = None
+        self.job_id = None
+        self.job_status = None        # status do job atual no motor (pending / working / ok)
+        self.last_check = None        # quando o motor respondeu pela última vez
+        self.engine_ok = True
+        self.block_found = 0          # resultados do bloco atual já gravados pelo motor
+        self.last_progress = time.time()
+        self.block_secs = []          # duração dos blocos já concluídos, para a previsão
 
     def say(self, msg):
         with self.lock:
@@ -73,25 +83,54 @@ class Run:
                     "blocks": self.blocks, "found": self.found, "log": self.log[-40:],
                     "points": self.points, "fields": self.fields, "results": self.results[:300],
                     "total": len(self.results), "file": os.path.basename(self.file) if self.file else None,
-                    "summary": self.summary}
+                    "summary": self.summary, "now": time.time(), "started": self.started,
+                    "block_started": self.block_started, "job_id": self.job_id,
+                    "job_status": self.job_status, "last_check": self.last_check,
+                    "engine_ok": self.engine_ok, "block_found": self.block_found,
+                    "last_progress": self.last_progress, "keywords": len(self.params["keywords"]),
+                    "depth": self.params["depth"], "email": self.params["email"],
+                    "avg_block": sum(self.block_secs) / len(self.block_secs) if self.block_secs else None}
 
 
 CURRENT = {"run": None}
 RUNS = {}
 
 
-def wait_job(run, job_id, max_time):
-    """Acompanha um job do motor até 'ok'. Levanta RuntimeError em falha ou tempo esgotado."""
+def wait_job(run, job_id, max_time, on_partial=None):
+    """Acompanha um job do motor -> "ok", "cancelled" ou "timeout". Levanta RuntimeError se o job falhar
+    ou o motor parar de responder. A cada ~10 s baixa o CSV parcial (o motor grava linha a linha)
+    e entrega a on_partial, para a página mostrar o que já foi encontrado."""
     deadline = time.time() + max_time + 180
+    fails, next_peek = 0, time.time() + 5
     while time.time() < deadline:
-        _, raw = scrape.req("GET", f"/api/v1/jobs/{job_id}")
-        status = json.loads(raw).get("Status")
+        if run.cancel:
+            return "cancelled"
+        try:
+            _, raw = scrape.req("GET", f"/api/v1/jobs/{job_id}")
+            status = json.loads(raw).get("Status")
+            fails = 0
+            with run.lock:
+                run.job_status, run.last_check, run.engine_ok = status, time.time(), True
+        except Exception as e:
+            fails += 1
+            with run.lock:
+                run.engine_ok = False
+            if fails >= 24:  # ~2 min sem resposta
+                raise RuntimeError(f"o motor parou de responder ({e}). Confira o Docker Desktop.")
+            time.sleep(5)
+            continue
         if status == "ok":
-            return
+            return "ok"
         if status == "failed":
             raise RuntimeError("o job falhou (se repetir, o IP pode estar limitado: espere ou use proxies)")
+        if on_partial and time.time() >= next_peek:
+            next_peek = time.time() + 10
+            try:
+                on_partial(scrape.download_job(job_id))
+            except Exception:
+                pass  # o CSV parcial ainda não existe no começo do job
         time.sleep(5)
-    raise RuntimeError("tempo esgotado")
+    return "timeout"
 
 
 def point(r):
@@ -120,27 +159,57 @@ def execute(run):
             if run.cancel:
                 run.say("Cancelado: os blocos restantes não serão buscados.")
                 break
-            run.block = i
-            run.stage = f"Buscando no Google Maps: bloco {i} de {len(cells)}"
+            with run.lock:
+                run.block, run.block_started, run.block_found = i, time.time(), 0
+                run.job_id, run.job_status, run.last_progress = None, None, time.time()
+                run.stage = f"Buscando no Google Maps: bloco {i} de {len(cells)}"
+
+            def merge(cell_rows, base=rows):
+                merged = scrape.dedupe(base + cell_rows)
+                if p["clip"]:
+                    merged = [r for r in merged if scrape.in_bbox(r, bbox, margin=0.02)]
+                return merged
+
+            def on_partial(part, merge=merge):
+                merged = merge(part)
+                with run.lock:
+                    if len(part) > run.block_found:
+                        run.last_progress = time.time()
+                    run.block_found, run.found = len(part), len(merged)
+                    run.points = [x for x in map(point, merged) if x]
+
             try:
                 _, raw = scrape.req("POST", "/api/v1/jobs", dict(body, **cell))
                 job_id = json.loads(raw).get("id")
                 if not job_id:
                     raise RuntimeError("o motor não devolveu o id do job")
+                run.job_id = job_id
                 run.say(f"Bloco {i}/{len(cells)}: job {job_id}")
-                wait_job(run, job_id, p["max_time"])
-                cell_rows = scrape.download_job(job_id)
+                outcome = wait_job(run, job_id, p["max_time"], on_partial)
+                try:
+                    cell_rows = scrape.download_job(job_id)  # parcial se cancelado ou no tempo-limite
+                except Exception:
+                    if outcome == "ok":
+                        raise
+                    cell_rows = []
             except Exception as e:
                 run.say(f"⚠ Bloco {i}/{len(cells)} ignorado: {e}")
                 continue
-            ok_blocks += 1
-            rows = scrape.dedupe(rows + cell_rows)
-            if p["clip"]:
-                rows = [r for r in rows if scrape.in_bbox(r, bbox, margin=0.02)]
-            pts = [x for x in map(point, rows) if x]
+            if outcome == "ok":
+                run.block_secs.append(time.time() - run.block_started)
+            elif outcome == "cancelled":
+                run.say(f"Cancelado no bloco {i}: guardando os {len(cell_rows)} resultados que já tinham saído. "
+                        "O motor termina este job sozinho, sem novos blocos.")
+            else:
+                run.say(f"⚠ Bloco {i}/{len(cells)} passou do tempo-limite: guardando os {len(cell_rows)} resultados parciais.")
+            ok_blocks += 1 if cell_rows or outcome == "ok" else 0
+            rows = merge(cell_rows)
             with run.lock:
-                run.found, run.points = len(rows), pts
+                run.found, run.block_found = len(rows), len(cell_rows)
+                run.points = [x for x in map(point, rows) if x]
             run.say(f"Bloco {i}/{len(cells)}: {len(cell_rows)} resultados, {len(rows)} únicos na área até agora")
+        if not ok_blocks and run.cancel:
+            raise RuntimeError("busca cancelada antes de sair qualquer resultado.")
         if not ok_blocks:
             raise RuntimeError("nenhum bloco deu certo. Confira se o motor está no ar "
                                "(docker compose up -d) ou espere alguns minutos se o IP estiver limitado.")

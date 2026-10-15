@@ -60,6 +60,12 @@
   .stat { background: var(--bg); border-radius: 8px; padding: 8px; text-align: center; }
   .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
   .stat span { color: var(--muted); font-size: 12px; }
+  .live { margin-top: 10px; padding: 10px; border-radius: 8px; background: var(--bg); font-size: 13px; display: grid; gap: 4px; }
+  .live b { font-variant-numeric: tabular-nums; }
+  .pulse { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #16a34a; margin-right: 6px; vertical-align: 1px; animation: pulse 1.6s infinite; }
+  .pulse.off { background: var(--bad); animation: none; } .pulse.idle { background: var(--muted); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.55); } 70% { box-shadow: 0 0 0 8px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
   details { margin-top: 10px; }
   summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   .log { font: 12px/1.5 ui-monospace, Consolas, monospace; background: var(--bg); border-radius: 8px; padding: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap; margin-top: 6px; }
@@ -140,13 +146,20 @@
       <div id="runBox" style="display:none">
         <div class="progress"><div id="bar"></div></div>
         <div class="stage" id="stage"></div>
+        <div class="live" id="live">
+          <div><span class="pulse" id="lvDot"></span><b id="lvState">Rodando</b> · <span id="lvBlock"></span></div>
+          <div id="lvEngine"></div>
+          <div id="lvFound"></div>
+          <div id="lvEta"></div>
+        </div>
+        <div class="msg" id="stuck"></div>
         <div class="stats">
           <div class="stat"><b id="sFound">0</b><span>empresas</span></div>
           <div class="stat"><b id="sEmail">–</b><span>com e-mail</span></div>
           <div class="stat"><b id="sWa">–</b><span>com WhatsApp</span></div>
         </div>
         <div class="row" style="margin-top:10px">
-          <button id="cancelBtn">Cancelar</button>
+          <button id="cancelBtn" title="Termina o bloco atual com o que já saiu e salva o CSV">Parar e salvar</button>
           <button id="dlBtn" disabled>⬇ Baixar CSV</button>
         </div>
         <details><summary>Detalhes</summary><div class="log" id="log"></div></details>
@@ -195,12 +208,21 @@ function autoGrid(b) {  // mesma regra do scripts/app.py
   for (const [limit, n] of [[4,1],[10,2],[20,3],[35,4]]) if (side <= limit) return n;
   return 5;
 }
+function nKeywords() { return Math.max(1, $("keywords").value.split("\n").filter((l) => l.trim()).length); }
+function blockMinutes(depth, email, kws) {  // estimativa grosseira por bloco, antes de medir o primeiro
+  return ({ "1": 2, "5": 5, "10": 12 }[String(depth)] || 5) * (email ? 1 : 0.5) * kws;
+}
+function fmt(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? `${h} h ${String(m).padStart(2, "0")} min` : m ? `${m} min ${String(s).padStart(2, "0")} s` : `${s} s`;
+}
 function gridN() { return $("grid").value === "auto" && area ? autoGrid(area.getBounds()) : parseInt($("grid").value || "1", 10); }
 function updateAreaInfo() {
   if (!area) { $("areaInfo").textContent = "Nenhuma área selecionada."; return; }
   const [w, h] = sizeKm(area.getBounds());
   const n = gridN(), blocks = n * n;
-  const per = ({ "1": 2, "5": 5, "10": 12 }[$("depth").value] || 5) * ($("email").checked ? 1 : 0.5);
+  const per = blockMinutes($("depth").value, $("email").checked, nKeywords());
   $("areaInfo").innerHTML = `Área de <b>${w.toFixed(1)} × ${h.toFixed(1)} km</b> · <b>${blocks}</b> bloco(s)` +
     ` · tempo estimado <b>${Math.max(1, Math.round(blocks * per))}–${Math.round(blocks * per * 2)} min</b>`;
   showMsg(blocks >= 16 ? "warn" : "", blocks >= 16 ?
@@ -228,7 +250,7 @@ map.on("mouseup", (e) => {
 });
 $("viewBtn").onclick = () => setArea(map.getBounds().pad(-0.05));
 $("cityBtn").onclick = () => { if (cityBbox) { setArea(cityBbox); map.fitBounds(cityBbox); } };
-$("grid").onchange = $("depth").onchange = $("email").onchange = updateAreaInfo;
+$("grid").onchange = $("depth").onchange = $("email").onchange = $("keywords").oninput = updateAreaInfo;
 
 // ── Cidade ──
 async function goCity() {
@@ -274,7 +296,7 @@ $("searchBtn").onclick = async () => {
     if (!r.ok) throw new Error(d.error);
     runId = d.id; markers.clearLayers(); $("results").classList.remove("show");
     $("runBox").style.display = "block"; $("dlBtn").disabled = true; $("cancelBtn").disabled = false;
-    poll(); timer = setInterval(poll, 3000);
+    snap = null; poll(); timer = setInterval(poll, 3000);
   } catch (err) { showMsg("bad", err.message); $("searchBtn").disabled = false; }
 };
 $("cancelBtn").onclick = async () => {
@@ -313,11 +335,47 @@ function renderTable(d) {
   $("results").classList.add("show");
   setTimeout(() => map.invalidateSize(), 50);
 }
+let snap = null, skew = 0;
+const STATUS = { pending: "na fila", working: "trabalhando", ok: "concluído", failed: "falhou" };
+function renderLive() {
+  const d = snap; if (!d || !d.started) return;
+  const now = Date.now() / 1000 - skew, running = d.state === "running";
+  const blockEl = d.block_started ? now - d.block_started : 0;
+  const per = d.avg_block || blockMinutes(d.depth, d.email, d.keywords) * 60;
+  const frac = running && d.block_started ? Math.min(0.95, blockEl / per) : 0;
+  const pct = !running ? 100 : d.blocks ? 100 * ((d.block - 1) + frac) / d.blocks : 3;
+  $("bar").style.width = Math.max(3, pct) + "%";
+  $("lvDot").className = "pulse" + (!running ? " idle" : d.engine_ok ? "" : " off");
+  $("lvState").textContent = running ? (d.engine_ok ? "Rodando" : "Motor sem resposta") :
+    ({ done: "Concluído", cancelled: "Parado", error: "Erro" }[d.state] || d.state);
+  $("lvBlock").textContent = running && d.block
+    ? `bloco ${d.block} de ${d.blocks} há ${fmt(blockEl)} · total ${fmt(now - d.started)}`
+    : `tempo total ${fmt((running ? now : d.last_check || now) - d.started)}`;
+  if (running && d.block) {
+    const ago = d.last_check ? now - d.last_check : null;
+    $("lvEngine").innerHTML = d.engine_ok
+      ? `Motor respondendo${ago !== null ? ` (há ${fmt(ago)})` : ""} · job ${esc(STATUS[d.job_status] || d.job_status || "criando…")}`
+      : `<span style="color:var(--bad)">O motor não responde. Confira se o Docker Desktop está aberto.</span>`;
+    $("lvFound").innerHTML = `Neste bloco: <b>${d.block_found}</b> resultado(s) já saíram · na área: <b>${d.found}</b> empresas`;
+    const left = Math.max(0, per - blockEl) + per * (d.blocks - d.block);
+    $("lvEta").textContent = `Previsão para terminar os blocos: ~${fmt(left)}` + (d.avg_block ? "" : " (estimativa inicial; melhora após o 1º bloco)");
+  } else {
+    $("lvEngine").textContent = ""; $("lvFound").textContent = ""; $("lvEta").textContent = "";
+  }
+  const quiet = running && d.block ? now - d.last_progress : 0;
+  const stuck = $("stuck");
+  if (quiet > 600) {
+    stuck.className = "msg warn";
+    stuck.textContent = `Nenhum resultado novo há ${fmt(quiet)}. O motor continua trabalhando, mas pode ser um bloco grande ` +
+      `ou o Google limitando o IP. Você pode esperar ou clicar em “Parar e salvar”.`;
+  } else { stuck.className = "msg"; }
+}
+setInterval(renderLive, 1000);
+
 async function poll() {
   let d;
   try { d = await (await fetch("/api/status?id=" + runId)).json(); } catch { return; }
-  const pct = d.blocks ? Math.round(100 * (d.block - (d.state === "running" ? 0.5 : 0)) / d.blocks) : 5;
-  $("bar").style.width = (d.state === "running" ? Math.max(5, pct) : 100) + "%";
+  if (d.now) { snap = d; skew = Date.now() / 1000 - d.now; renderLive(); }
   $("stage").textContent = d.stage;
   $("sFound").textContent = d.summary.total ?? d.found;
   $("sEmail").textContent = d.summary.emails ?? "–";
