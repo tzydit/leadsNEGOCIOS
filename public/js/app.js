@@ -198,12 +198,6 @@ function renderWorkers() {
     }
   }
   renderCosts();
-  const sel = $('#tplSelect');
-  if (!sel.options.length) {
-    sel.innerHTML = Object.entries(S.data.templates)
-      .map(([k, label]) => `<option value="${esc(k)}">${esc(label)}</option>`)
-      .join('');
-  }
 }
 
 // ---- painel ---------------------------------------------------------------
@@ -389,12 +383,7 @@ function stepCard(s, i, n, last) {
     <div class="skills">
       ${skillChips(s)}
     </div>
-    <div class="model-row">
-      <label for="mdl-${i}">Modelo</label>
-      <select id="mdl-${i}" data-s="model" data-prev="${esc(s.model ?? '')}" title="${esc(modelInfo(s.worker, s.model)?.description ?? '')}">${modelOptions(s.worker, s.model, `Padrão (${modelLabel(s.worker, S.data.settings.workers[s.worker].model) || 'do CLI'})`)}</select>
-      <label for="eff-${i}">Raciocínio</label>
-      <select id="eff-${i}" data-s="effort">${effortOptions(s.worker, s.model || S.data.settings.workers[s.worker].model, s.effort, `Padrão${S.data.settings.workers[s.worker].effort ? ` (${EFFORT_LABEL[S.data.settings.workers[s.worker].effort] ?? S.data.settings.workers[s.worker].effort})` : ''}`)}</select>
-    </div>
+    ${modelLine(s)}
     ${meta}
   </div>`;
 }
@@ -760,6 +749,13 @@ function wirePanel() {
       await api('DELETE', `/api/lines/${id}`);
       S.selected = null;
       S.drafts.delete(id);
+    } else if (act === 'clear-model') {
+      const i = +btn.closest('.step').dataset.i;
+      mutate(id, (d) => {
+        d.steps[i].model = '';
+        d.steps[i].effort = '';
+      });
+      renderPanel();
     } else if (act === 'pick-workdir') {
       const line = getLine(id);
       const picked = await pickFolder(draft(id).workdir || S.data.settings.defaultWorkdir);
@@ -953,6 +949,19 @@ function costsHtml() {
 
 // ---- modelos ---------------------------------------------------------------
 
+/** Na etapa só aparece o modelo e o esforço em uso; a escolha fica no cartão da IA, no topo. */
+function modelLine(s) {
+  const cfg = S.data.settings.workers[s.worker];
+  const model = s.model || cfg.model;
+  const effort = s.effort || cfg.effort;
+  const own = Boolean(s.model || s.effort);
+  return `<div class="model-line" title="Troque no cartão do ${esc(wname(s.worker))}, no topo da tela">
+    <span>🧠 <b>${esc(modelLabel(s.worker, model) || 'Padrão do CLI')}</b></span>
+    <span>· esforço <b>${esc(effort ? EFFORT_LABEL[effort] ?? effort : 'padrão')}</b></span>
+    ${own ? '<button type="button" class="btn ghost small" data-act="clear-model" title="Esta etapa tinha um modelo próprio; volta a usar o do topo">usar o do topo</button>' : ''}
+  </div>`;
+}
+
 const EFFORT_LABEL = { low: 'baixo', medium: 'médio', high: 'alto', xhigh: 'muito alto', max: 'máximo', ultra: 'ultra' };
 const DEFAULT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const models = (w) => S.data.models?.[w]?.models ?? [];
@@ -1080,7 +1089,8 @@ function wirePicker() {
 }
 
 const createLine = safe(async () => {
-  const line = await api('POST', '/api/lines', { template: $('#tplSelect').value });
+  // O modelo da linha (Claude faz → Codex revisa etc.) se escolhe dentro dela, em "Aplicar modelo…".
+  const line = await api('POST', '/api/lines', {});
   selectLine(line.id, { tab: 'etapas' });
 });
 
