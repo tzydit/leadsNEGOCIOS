@@ -139,6 +139,20 @@ class Socials(unittest.TestCase):
         for html, want in cases.items():
             self.assertEqual(scrape._find_whatsapp(html), want, html)
 
+    def test_website_is_social_profile(self):
+        rows = [{"website": "https://instagram.com/panpanpaes?utm_medium=copy_link"},
+                {"website": "http://www.instagram.com/panificadoramihra"},
+                {"website": "https://wa.me/5541999998888"},
+                {"website": ""}]
+        page = '<a href="https://www.instagram.com/outra_conta">x</a><a href="https://facebook.com/padaria">fb</a>'
+        with mock.patch.object(scrape, "_fetch_cached", return_value=page), redirect_stdout(io.StringIO()):
+            scrape.enrich_socials(rows)
+        self.assertEqual(rows[0]["instagram"], "https://instagram.com/panpanpaes")
+        self.assertEqual(rows[0]["facebook"], "https://facebook.com/padaria")  # ainda lê a página
+        self.assertEqual(rows[1]["instagram"], "http://www.instagram.com/panificadoramihra")
+        self.assertEqual(rows[2]["whatsapp"], "https://wa.me/5541999998888")
+        self.assertEqual(rows[3], {"website": "", "instagram": "", "facebook": "", "linkedin": "", "whatsapp": ""})
+
     def test_whatsapp_rejects_short_numbers(self):
         self.assertEqual(scrape._find_whatsapp('<a href="https://wa.me/123">x</a>'), "")
         self.assertEqual(scrape._find_whatsapp(""), "")

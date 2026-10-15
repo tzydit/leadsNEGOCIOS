@@ -241,7 +241,11 @@ def enrich_socials(results, workers=8):
     todo = [r for r in results if r.get("website")]
     done = 0
     def work(r):
-        r.update(_find_socials(_fetch_cached(r["website"])))
+        # Muitas empresas cadastram o Instagram (ou um link wa.me) como site no Google Maps:
+        # nesse caso o próprio website já é o perfil e vale mais que um link achado na página.
+        own = _find_socials(r["website"])
+        found = _find_socials(_fetch_cached(r["website"]))
+        r.update({k: own[k] or found[k] for k in SOCIALS})
     with ThreadPoolExecutor(max_workers=workers) as ex:
         for _ in ex.map(work, todo):
             done += 1
