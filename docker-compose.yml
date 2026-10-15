@@ -1,0 +1,28 @@
+# Roda o motor do projeto, o scraper open-source do Google Maps (gosom/google-maps-scraper), localmente.
+# Serve a interface web e a API em http://localhost:8080. Porta do host: SCRAPER_PORT no .env, padrão 8080.
+# A imagem não tem autenticação, então a porta fica presa ao 127.0.0.1. Essa ligação a localhost é a
+# fronteira de segurança. Não troque o mapeamento para 0.0.0.0 ou uma interface pública sem um proxy
+# com autenticação na frente.
+
+services:
+  google-maps-scraper:
+    # Imagem do motor, fixada em uma versão conhecida e funcional para execuções reproduzíveis.
+    # Atualize de forma deliberada. A v1.15.0 e anteriores baixam um driver do Playwright que a CDN
+    # da Microsoft já removeu (erro 404); a v1.18.1 usa um driver que ainda está hospedado.
+    # A imagem publicada é linux/amd64. Em Apple Silicon (M1/M2/M3) ela roda por emulação.
+    # Se o contêiner não subir aí, descomente a linha 'platform' abaixo.
+    image: gosom/google-maps-scraper:v1.18.1
+    # platform: linux/amd64
+    container_name: gmaps-scraper
+    restart: unless-stopped
+    command: ["-web", "-data-folder", "/gmapsdata"]
+    ports:
+      # Porta do host vem de SCRAPER_PORT no .env (padrão 8080). A do contêiner continua 8080.
+      - "127.0.0.1:${SCRAPER_PORT:-8080}:8080"   # só localhost, veja o aviso acima
+    volumes:
+      - gmaps_data:/gmapsdata    # resultados dos jobs; ficam até você apagar o job ou o volume
+      - gmaps_cache:/opt         # cache do navegador do Playwright, para reinícios não baixarem de novo
+
+volumes:
+  gmaps_data:
+  gmaps_cache:

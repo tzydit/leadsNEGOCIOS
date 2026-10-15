@@ -1,0 +1,24 @@
+{
+  "$comment": "Pré-aprova os comandos locais e seguros que este projeto usa, para o Claude rodar buscas sem pedir permissão a cada vez. Todas as entradas são locais (localhost / scripts desta pasta / docker). Nada aqui acessa a internet pública, exceto as chamadas do próprio motor.",
+  "permissions": {
+    "allow": [
+      "Bash(docker compose up:*)",
+      "Bash(docker compose down:*)",
+      "Bash(docker compose stop:*)",
+      "Bash(docker compose start:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker ps:*)",
+      "Bash(curl http://localhost:8080:*)",
+      "Bash(curl -s http://localhost:8080:*)",
+      "Bash(curl http://127.0.0.1:8080:*)",
+      "Bash(./scripts/scrape.sh:*)",
+      "Bash(bash scripts/scrape.sh:*)",
+      "Bash(python3 scripts/scrape.py:*)",
+      "Bash(python scripts/scrape.py:*)",
+      "Bash(python3 scripts/test_scrape.py:*)",
+      "Bash(python3 scripts/test_app.py:*)",
+      "Bash(python3 scripts/app.py:*)"
+    ],
+    "deny": []
+  }
+}
